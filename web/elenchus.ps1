@@ -1,28 +1,34 @@
 # ============================================================================
 # INFO
 # ============================================================================
+# ============ Author
+# https://www.linkedin.com/in/kaos/
 # ============ Description
-# HTTP client with proxy support and retry mechanism
+# Elenchus
+# The philosophical art of cross-examination and refutation. SSL/TLS and HTTP security scanner designed to identify common misconfigurations in web applications
 # ============ Usage
-# ./http.ps1
-# $proxy = Initialize-ProxyConnection "HTTP" "proxy:8080/" "kaos"
-# $res = Send-HttpReq "GET" "www.google.com" -ProxyConfig $proxy
+# ============ References
+# https://github.com/rbsec/sslscan
+# https://github.com/santoru/shcheck
+# https://github.com/OWASP/www-project-secure-headers
 
+# ============================================================================
+# INITIALIZATIONS
+# ============================================================================
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
 # LOGGER
 # ============================================================================
-# ============ Initializations
-# Constants
-Set-Variable LOG_NONE -Option ReadOnly -Value 99
-Set-Variable LOG_CRITICAL -Option ReadOnly -Value 50
-Set-Variable LOG_ERROR -Option ReadOnly -Value 40
-Set-Variable LOG_WARNING -Option ReadOnly -Value 30
-Set-Variable LOG_INFO -Option ReadOnly -Value 20
-Set-Variable LOG_DEBUG -Option ReadOnly -Value 10
+# ============ Constants
+Set-Variable LOG_NONE -Option ReadOnly -Scope Script -Visibility Private -Value 99
+Set-Variable LOG_CRITICAL -Option ReadOnly -Scope Script -Visibility Private -Value 50
+Set-Variable LOG_ERROR -Option ReadOnly -Scope Script -Visibility Private -Value 40
+Set-Variable LOG_WARNING -Option ReadOnly -Scope Script -Visibility Private -Value 30
+Set-Variable LOG_INFO -Option ReadOnly -Scope Script -Visibility Private -Value 20
+Set-Variable LOG_DEBUG -Option ReadOnly -Scope Script -Visibility Private -Value 10
 
-Set-Variable LogLevelNames -Option ReadOnly -Value @{
+Set-Variable LogLevelNames -Option ReadOnly -Scope Script -Visibility Private -Value @{
 	99 = "NONE"
 	50 = "CRITICAL"
 	40 = "ERROR"
@@ -31,7 +37,7 @@ Set-Variable LogLevelNames -Option ReadOnly -Value @{
 	10 = "DEBUG"
 }
 
-Set-Variable LogColors -Option ReadOnly -Value @{
+Set-Variable LogColors -Option ReadOnly -Scope Script -Visibility Private -Value @{
 	99 = "Gray"		# Reset/None
 	50 = "Magenta"	# Critical
 	40 = "Red"		# Error
@@ -41,32 +47,11 @@ Set-Variable LogColors -Option ReadOnly -Value @{
 	0 = "White"		# Custom
 }
 
-# Configurations
-Set-Variable TimestampFormat -Option ReadOnly -Value "HH:mm:ss.fff"
-Set-Variable CurrentLogLevel -Option ReadOnly -Value $LOG_INFO
-Set-Variable ColorizeMessage -Option ReadOnly -Value $true
+Set-Variable TimestampFormat -Option ReadOnly -Scope Script -Visibility Private -Value "HH:mm:ss.fff"
+Set-Variable ColorizeMessage -Option ReadOnly -Scope Script -Visibility Private -Value $true
+Set-Variable CurrentLogLevel -Scope Script -Visibility Private -Value $LOG_INFO
 
-# ============ Private functions
-<#
-	.SYNOPSIS
-		Traceback the calling stack
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
+# ============ Traceback the calling stack
 function Get-CallerInfo {
 	[CmdletBinding()]
 	param()
@@ -108,26 +93,7 @@ function Get-CallerInfo {
 	return "${processId}:${fileName}:${functionName}"
 }
 
-<#
-	.SYNOPSIS
-		Write the log to the host
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
+# ============ Write the log to the host
 function Write-LogMessage {
 	[CmdletBinding()]
 	param(
@@ -165,27 +131,7 @@ function Write-LogMessage {
 	}
 }
 
-# ============ Public API
-<#
-	.SYNOPSIS
-		Logging function
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
+# ============ Logging API
 function Write-Log {
 	[CmdletBinding()]
 	param (
@@ -221,21 +167,9 @@ function Write-Log {
 }
 
 # ============================================================================
-# HTTP CLIENT
+# PROXY
 # ============================================================================
-# ============ Initializations
-# Variables
-Set-Variable ProxyCredentials -Scope Script -Visibility Private -Value $null
-$retryableStatusCodes = @(
-	408,	# Request Timeout
-	429,	# Too Many Requests
-	500,	# Internal Server Error
-	502,	# Bad Gateway
-	503,	# Service Unavailable
-	504		# Gateway Timeout
-)
-
-# ============ Private functions
+# Initialize-ProxyConnection "HTTP" "proxy:8080/" "kaos"
 <#
 	.SYNOPSIS
 		Detect proxy authentication method
@@ -327,7 +261,6 @@ function Get-ProxyAuthMethod {
 	}
 }
 
-# ============ Public API
 <#
 	.SYNOPSIS
 		Prepare proxy connection
@@ -420,10 +353,155 @@ function Initialize-ProxyConnection {
 
 	return $proxyConfig
 }
+# ============================================================================
+# SSL/TLS
+# ============================================================================
 
+# ============================================================================
+# HTTP HEADERS
+# ============================================================================
+
+$HeaderRules = @(
+	@{
+		Name			= "Server"
+		Recommended		= $false
+		# Secure if the header is not null
+		IsSecure		= { $null -eq $args[0] } 
+		Recommendation	= "Disable or mask this header in the server configuration to prevent fingerprinting"
+		References		= @(
+			"https://"
+		)
+	},
+	@{
+		Name			= "Access-Control-Allow-Origin"
+		Recommended		= $true
+		# Secure if present and not set to wildcard
+		IsSecure		= { $null -ne $args[0] -and $args[0] -ne "*" } 
+		Recommendation	= "Set this header to a specific origin or remove it if CORS is not needed to prevent data leaks and CSRF attacks"
+		References		= @(
+			"https://"
+		)
+	},
+	@{
+		Name			= ""
+		Recommended		= $false
+		# 
+		IsSecure		= { $null -eq $args[0] } 
+		Recommendation	= ""
+		References		= @(
+			"https://"
+		)
+	}
+)
+
+# --- Add
+# Cache-Control: "no-store, max-age=0"
+# Clear-Site-Data: "cache", "cookies", "storage"
+# Content-Security-Policy: "default-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+# Cross-Origin-Embedder-Policy: "require-corp"
+# Cross-Origin-Opener-Policy: "same-origin"
+# Cross-Origin-Resource-Policy: "same-origin"
+# Permissions-Policy: "accelerometer=(), autoplay=(), camera=(), cross-origin-isolated=(), display-capture=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(self), usb=(), web-share=(), xr-spatial-tracking=(), clipboard-read=(), clipboard-write=(), gamepad=(), hid=(), idle-detection=(), interest-cohort=(), serial=(), unload=()"
+# Referrer-Policy: "no-referrer"
+# Strict-Transport-Security: "max-age=63072000; includeSubDomains"
+# X-Content-Type-Options: "nosniff"
+# X-DNS-Prefetch-Control: "off"
+# X-Frame-Options: "deny"
+# X-Permitted-Cross-Domain-Policies: "none"
+
+# --- Remove
+# $wsep
+# Host-Header
+# K-Proxy-Request
+# Liferay-Portal
+# OracleCommerceCloud-Version
+# Pega-Host
+# Powered-By
+# Product
+# Server
+# SourceMap
+# X-AspNet-Version
+# X-AspNetMvc-Version
+# X-Atmosphere-error
+# X-Atmosphere-first-request
+# X-Atmosphere-tracking-id
+# X-B3-ParentSpanId
+# X-B3-Sampled
+# X-B3-SpanId
+# X-B3-TraceId
+# X-BEServer
+# X-Backside-Transport
+# X-CF-Powered-By
+# X-CMS
+# X-CalculatedBETarget
+# X-Cocoon-Version
+# X-Content-Encoded-By
+# X-DiagInfo
+# X-Envoy-Attempt-Count
+# X-Envoy-External-Address
+# X-Envoy-Internal
+# X-Envoy-Original-Dst-Host
+# X-Envoy-Upstream-Service-Time
+# X-FEServer
+# X-Framework
+# X-Generated-By
+# X-Generator
+# X-Gitlab-Meta
+# X-Jitsi-Release
+# X-Joomla-Version
+# X-Kong-Admin-Latency
+# X-Kong-Client-Latency
+# X-Kong-Proxy-Latency
+# X-Kong-Request-Id
+# X-Kong-Response-Latency
+# X-Kong-Third-Party-Latency
+# X-Kong-Total-Latency
+# X-Kong-Upstream-Latency
+# X-Kong-Upstream-Status
+# X-Kubernetes-PF-FlowSchema-UI
+# X-Kubernetes-PF-PriorityLevel-UID
+# X-LiteSpeed-Cache
+# X-LiteSpeed-Purge
+# X-LiteSpeed-Tag
+# X-LiteSpeed-Vary
+# X-Litespeed-Cache-Control
+# X-Mod-Pagespeed
+# X-Nextjs-Cache
+# X-Nextjs-Matched-Path
+# X-Nextjs-Page
+# X-Nextjs-Redirect
+# X-OWA-Version
+# X-Old-Content-Length
+# X-OneAgent-JS-Injection
+# X-Page-Speed
+# X-Php-Version
+# X-Powered-By
+# X-Powered-By-Plesk
+# X-Powered-CMS
+# X-Redirect-By
+# X-Server-Powered-By
+# X-SourceFiles
+# X-SourceMap
+# X-Turbo-Charged-By
+# X-Umbraco-Version
+# X-Varnish-Backend
+# X-Varnish-Server
+# X-Woodpecker-Version
+# X-dtAgentId
+# X-dtHealthCheck
+# X-dtInjectedServlet
+# X-ruxit-JS-Agent
+
+# ============================================================================
+# HTTP COOKIES
+# ============================================================================
+
+# ============================================================================
+# MAIN
+# ============================================================================
 <#
 	.SYNOPSIS
-		Perform HTTP request
+		
 	.DESCRIPTION
 		...
 	.PARAMETER ...
@@ -441,134 +519,101 @@ function Initialize-ProxyConnection {
 	.NOTES
 		...
 #>
-function Send-HttpReq {
-	[CmdletBinding()]
-	param (
-		# Method
-		[Parameter(Mandatory, Position=0)]
-		[ValidateSet("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")]
-		[string] $Method,
-
-		# URL
-		[Parameter(Mandatory, Position=1)]
-		[System.Uri] $Uri,
-
-		# Headers
-		[Parameter()]
-		[hashtable] $Headers = @{},
-
-		# Request Body
-		[Parameter()]
-		[string] $Body,
-
-		# Timeout in seconds
-		[Parameter()]
-		[ValidateRange(1, 3600)]
-		[int] $Timeout = 30,
-
-		# Expected HTTP response code
-		[Parameter()]
-		[ValidateRange(100, 599)]
-		[int] $ExpectedResponseCode = 200,
-
-		# Max request attempts
-		[Parameter()]
-		[ValidateRange(1, 100)]
-		[int] $MaxAttempts = 3,
-
-		# Proxy configuration object
-		[Parameter()]
-		[object] $ProxyConfig = $null,
-
-		# Session name
-		[Parameter()]
-		[string] $SessionName = "session"
-
+function Invoke-HeaderAudit {
+	param(
+		[Parameter(Mandatory, Position = 0)]
+		[string]$Headers
 	)
+
 	process {
-		$attemptCount = 0
-		$lastError = $null
+		Write-Log "Info" "Starting header audit"
 
-		while ($attemptCount -lt $MaxAttempts) {
-			$attemptCount++
+		try {
+			# Process header rules
+			foreach ($Rule in $HeaderRules) {
+				$HeaderValue = $ResponseHeaders[$Rule.Name]
+				
+				Write-Log "Debug" "Evaluating rule $($Rule.Name)"
 
-			try {
-				# Prepare Invoke-WebRequest parameters
-				$requestParams = @{
-					Uri = $Uri
-					Method = $Method
-					Headers = $Headers.Clone()
-					TimeoutSec = $Timeout
-					UseBasicParsing = $true
-				}
+				# if not recommended and value not null, it's insecure
+				# else, if value is null it's insecure
 
-				# Add body if provided
-				if ($Body) {
-					$requestParams["Body"] = $Body
-				}
-
-				# Add proxy if configured
-				if ($ProxyConfig) {
-					$requestParams["Proxy"] = $ProxyConfig.Uri.AbsoluteUri
-					$requestParams["ProxyUseDefaultCredentials"] = $ProxyConfig.UseDefaultCredentials
-
-					if ($ProxyConfig.Credentials) {
-						$requestParams["ProxyCredential"] = $ProxyConfig.Credentials
+				try {
+					# Execute the ScriptBlock dynamically
+					if (Invoke-Command -ScriptBlock $Rule.IsSecure -ArgumentList $HeaderValue) {
+						# Secure
+					} else {
+						# Insecure
 					}
+				} catch {
+					Write-Log "Error" "Error evaluating rule $($Rule.Name): $($_.Exception.Message)"
 				}
 
-				# Managing web session
-				$session = Get-Variable -Name $SessionName -Scope Script -ErrorAction SilentlyContinue
-
-				if ($session -and $session.Value -is [Microsoft.PowerShell.Commands.WebRequestSession]) {
-					$requestParams["WebSession"] = $session.Value
-					Write-Log "Debug" "Using web session: $SessionName"
-				} else {
-					$requestParams["SessionVariable"] = $SessionName
-					Write-Log "Debug" "Creating new web session: $SessionName"
-				}
-
-				# Send the request
-				Write-Log "Debug" "HTTP $Method $Uri"
-				$response = Invoke-WebRequest @requestParams
-
-				# Check the response code
-				if ($response.StatusCode -eq $ExpectedResponseCode) {
-					return $response.Content
-				}
-				else {
-					throw "Unexpected status code ($($response.StatusCode))"
-				}
-			} catch {
-				$statusCode = $null
-
-				# Extract status code from error if available
-				if ($_.Exception.Response) {
-					$statusCode = [int]$_.Exception.Response.StatusCode
-				}
-
-				# Check if this is a retryable attempt
-				if ($statusCode -and $statusCode -in $retryableStatusCodes -and $attemptCount -lt $MaxAttempts) {
-					# Calculate backoff delay (exponential backoff)
-					$delaySeconds = [Math]::Min(2, [Math]::Pow(2, $attemptCount - 1))
-					Write-Log "Warning" "Waiting $delaySeconds seconds before retry..."
-					Start-Sleep -Seconds $delaySeconds
-					continue
-				}
-
-				# Non-retryable error - give up immediately
-				$lastError = $_
-				Write-Log "Error" "HTTP request error: $($_.Exception.Message)"
-
-				if ($attemptCount -lt $MaxAttempts) {
-					Write-Log "Warning" "Non-retryable error. Giving up"
-				}
-
-				break
+				# Append results to report object
 			}
+			
+			Write-Log "Info" "Completed header audit"
+			# return report
+		} catch {
+			Write-Log "Error" "Error during header audit: $($_.Exception.Message)"
+			exit 1
+		}
+	}
+}
+
+<#
+	.SYNOPSIS
+		
+	.DESCRIPTION
+		...
+	.PARAMETER ...
+		...
+	.EXAMPLE
+		...
+	.INPUTS
+		...
+	.OUTPUTS
+		...
+	.COMPONENT
+		...
+	.LINK
+		...
+	.NOTES
+		...
+#>
+function Invoke-Elenchus {
+	param(
+		[Parameter(Mandatory, Position = 0)]
+		[string]$Target,
+
+		[Parameter]
+		[switch]$Debug = $false
+	)
+
+	process {
+		Write-Log "Info" "Starting Elenchus scan"
+
+		if ($Debug) {
+			$CurrentLogLevel = $LOG_DEBUG
+			Write-Log "Debug" "Debug mode enabled"
 		}
 
-		Write-Log "Critical" "Failed to perform HTTP request after $attemptCount attempts"
-		throw "HTTP request failed: $($lastError.Exception.Message)"
+		try {
+			# Check for proxy
+
+			# Perform request and log details on debug
+			$ResponseHeaders = (Invoke-WebRequest -Uri $Target -Method Head -UseBasicParsing -ErrorAction Stop).Headers
+
+			# Log response headers and cookies on debug
+			Write-Log "Debug" "Fetched response headers:`n$( ($ResponseHeaders.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join "`n" )"
+
+			# invoke audits
+
+			Write-Log "Info" "Completed Elenchus scan"
+			# Write report
+		} catch {
+			Write-Log "Critical" "Error during main execution: $($_.Exception.Message)"
+			exit 1
+		}
 	}
 }
