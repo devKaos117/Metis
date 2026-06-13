@@ -362,12 +362,32 @@ function Initialize-ProxyConnection {
 # ============================================================================
 
 $HEADER_RULES = @(
+	# @{
+	# 	Name			= ""
+	# 	Policy			= "Required|Inadvisable|Conditional"
+	# 	# 
+	# 	IsSecure		= { $null -eq $args[0] } 
+	# 	Recommendation	= ""
+	# 	References		= @(
+	# 		"https://"
+	# 	)
+	# },
 	@{
 		Name			= "Server"
 		Policy			= "Inadvisable"
-		# Secure if the header is not null
+		# Secure if the header is null
 		IsSecure		= { $null -eq $args[0] } 
 		Recommendation	= "Disable or mask this header in the server configuration to prevent fingerprinting"
+		References		= @(
+			"https://"
+		)
+	},
+	@{
+		Name			= "Content-Security-Policy"
+		Policy			= "Required"
+		# 
+		IsSecure		= { $null -ne $args[0] } 
+		Recommendation	= "Implement a strong CSP policy tailored to your application to significantly reduce attack surface"
 		References		= @(
 			"https://"
 		)
@@ -378,16 +398,6 @@ $HEADER_RULES = @(
 		# Secure if present and not set to wildcard
 		IsSecure		= { $null -ne $args[0] -and $args[0] -ne "*" } 
 		Recommendation	= "Set this header to a specific origin or remove it if CORS is not needed to prevent data leaks and CSRF attacks"
-		References		= @(
-			"https://"
-		)
-	},
-	@{
-		Name			= ""
-		Policy			= "Required|Inadvisable|Conditional"
-		# 
-		IsSecure		= { $null -eq $args[0] } 
-		Recommendation	= ""
 		References		= @(
 			"https://"
 		)
@@ -520,6 +530,8 @@ $HEADER_RULES = @(
 		...
 #>
 function Invoke-HeaderAudit {
+	[CmdletBinding()]
+    [OutputType([System.Collections.Generic.List[PSObject]])]
 	param(
 		[Parameter(Mandatory, Position = 0)]
 		[System.Collections.IDictionary]$Headers
@@ -528,18 +540,18 @@ function Invoke-HeaderAudit {
 	process {
 		Write-Log "Info" "Starting header audit"
 
-		try {
-			$report = new-object System.Collections.Generic.List[PSObject]
+		$report = new-object System.Collections.Generic.List[PSObject]
 
-			# Process header rules
-			foreach ($rule in $HEADER_RULES) {
+		# Process header rules
+		foreach ($rule in $HEADER_RULES) {
+			try {
 				$currentHeader = $Headers[$rule.Name]
 				
 				Write-Log "Debug" "Evaluating rule $($rule.Name)"
 
 				# If not inadvisable but present, it's insecure
 				if ($rule.Policy -eq "Inadvisable" -and $null -ne $currentHeader) {
-					Write-Log "Debug" "Inadvisable header $($rule.Name) is present"
+					Write-Log "Warning" "Inadvisable header $($rule.Name) is present"
 					# Append results to report object and continue
 					$report.Add([PSCustomObject]@{
 						Name = $rule.Name
@@ -552,26 +564,44 @@ function Invoke-HeaderAudit {
 					continue
 				}
 
-				try {
-					# Execute the ScriptBlock dynamically
-					if (Invoke-Command -ScriptBlock $rule.IsSecure -ArgumentList $currentHeader) {
-						# Secure
-					} else {
-						# Insecure
-					}
-				} catch {
-					Write-Log "Error" "Error evaluating rule $($rule.Name): $($_.Exception.Message)"
+				# If required but missing, it's insecure
+				if ($rule.Policy -eq "Required" -and $null -eq $currentHeader) {
+					Write-Log "Warning" "Required header $($rule.Name) is missing"
+					# Append results to report object and continue
+					$report.Add([PSCustomObject]@{
+						Name = $rule.Name
+						Value = $currentHeader
+						Policy = $rule.Policy
+						IsSecure = $false
+						Recommendation = $rule.Recommendation
+						References = $rule.References
+					})
+					continue
 				}
 
-				# Append results to report object
+				# It's not inadvisable or missing, perform assessment
+				if (Invoke-Command -ScriptBlock $rule.IsSecure -ArgumentList $currentHeader){
+					Write-Log "Debug" "Header $($rule.Name) is secure according to assessment"
+					$isSecure = $true
+				} else {
+					Write-Log "Warning" "Header $($rule.Name) is insecure according to assessment"
+					$isSecure = $false
+				}
+				
+				$report.Add([PSCustomObject]@{
+					Name = $rule.Name
+					Value = $currentHeader
+					Policy = $rule.Policy
+					IsSecure = $isSecure
+					Recommendation = $rule.Recommendation
+					References = $rule.References
+				})
+			} catch {
+				Write-Log "Error" "Error evaluating rule $($rule.Name): $($_.Exception.Message)"
 			}
-			
-			Write-Log "Info" "Completed header audit"
-			# return report
-		} catch {
-			Write-Log "Error" "Error during header audit: $($_.Exception.Message)"
-			exit 1
-		}
+		}		
+		Write-Log "Info" "Completed header audit"
+		return $report
 	}
 }
 
@@ -596,18 +626,20 @@ function Invoke-HeaderAudit {
 		...
 #>
 function Invoke-Elenchus {
+	[CmdletBinding()]
+    [OutputType([System.Void])]
 	param(
 		[Parameter(Mandatory, Position = 0)]
 		[string]$Target,
 
-		[Parameter]
-		[switch]$Debug = $false
+		[Parameter()]
+		[switch]$DebugMode
 	)
 
 	process {
 		Write-Log "Info" "Starting Elenchus scan"
 
-		if ($Debug) {
+		if ($DebugMode) {
 			$CurrentLogLevel = $LOG_DEBUG
 			Write-Log "Debug" "Debug mode enabled"
 		}
@@ -616,15 +648,17 @@ function Invoke-Elenchus {
 			# Check for proxy
 
 			# Perform request and log details on debug
-			$ResponseHeaders = (Invoke-WebRequest -Uri $Target -Method Head -UseBasicParsing -ErrorAction Stop).Headers
+			$ResponseHeaders = (Invoke-WebRequest -Uri $Target -Method GET -UseBasicParsing -ErrorAction Stop).Headers
 
 			# Log response headers and cookies on debug
 			Write-Log "Debug" "Fetched response headers:`n$( ($ResponseHeaders.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join "`n" )"
 
 			# invoke audits
+			$HeaderAuditReport = Invoke-HeaderAudit -Headers $ResponseHeaders
 
 			Write-Log "Info" "Completed Elenchus scan"
 			# Write report
+			$HeaderAuditReport | Format-Table -AutoSize
 		} catch {
 			Write-Log "Critical" "Error during main execution: $($_.Exception.Message)"
 			exit 1
