@@ -228,8 +228,8 @@ function Get-ProxyAuthMethod {
 			}
 
 			$authMethods = @()
-			foreach ($header in $authHeader) {
-				if ($header -match "^(\w+)") {
+			foreach ($method in $authHeader) {
+				if ($method -match "^(\w+)") {
 					$authMethods += $matches[1]
 				}
 			}
@@ -361,10 +361,10 @@ function Initialize-ProxyConnection {
 # HTTP HEADERS
 # ============================================================================
 
-$HeaderRules = @(
+$HEADER_RULES = @(
 	@{
 		Name			= "Server"
-		Recommended		= $false
+		Policy			= "Inadvisable"
 		# Secure if the header is not null
 		IsSecure		= { $null -eq $args[0] } 
 		Recommendation	= "Disable or mask this header in the server configuration to prevent fingerprinting"
@@ -374,7 +374,7 @@ $HeaderRules = @(
 	},
 	@{
 		Name			= "Access-Control-Allow-Origin"
-		Recommended		= $true
+		Policy			= "Required"
 		# Secure if present and not set to wildcard
 		IsSecure		= { $null -ne $args[0] -and $args[0] -ne "*" } 
 		Recommendation	= "Set this header to a specific origin or remove it if CORS is not needed to prevent data leaks and CSRF attacks"
@@ -384,7 +384,7 @@ $HeaderRules = @(
 	},
 	@{
 		Name			= ""
-		Recommended		= $false
+		Policy			= "Required|Inadvisable|Conditional"
 		# 
 		IsSecure		= { $null -eq $args[0] } 
 		Recommendation	= ""
@@ -522,31 +522,45 @@ $HeaderRules = @(
 function Invoke-HeaderAudit {
 	param(
 		[Parameter(Mandatory, Position = 0)]
-		[string]$Headers
+		[System.Collections.IDictionary]$Headers
 	)
 
 	process {
 		Write-Log "Info" "Starting header audit"
 
 		try {
-			# Process header rules
-			foreach ($Rule in $HeaderRules) {
-				$HeaderValue = $ResponseHeaders[$Rule.Name]
-				
-				Write-Log "Debug" "Evaluating rule $($Rule.Name)"
+			$report = new-object System.Collections.Generic.List[PSObject]
 
-				# if not recommended and value not null, it's insecure
-				# else, if value is null it's insecure
+			# Process header rules
+			foreach ($rule in $HEADER_RULES) {
+				$currentHeader = $Headers[$rule.Name]
+				
+				Write-Log "Debug" "Evaluating rule $($rule.Name)"
+
+				# If not inadvisable but present, it's insecure
+				if ($rule.Policy -eq "Inadvisable" -and $null -ne $currentHeader) {
+					Write-Log "Debug" "Inadvisable header $($rule.Name) is present"
+					# Append results to report object and continue
+					$report.Add([PSCustomObject]@{
+						Name = $rule.Name
+						Value = $currentHeader
+						Policy = $rule.Policy
+						IsSecure = $false
+						Recommendation = $rule.Recommendation
+						References = $rule.References
+					})
+					continue
+				}
 
 				try {
 					# Execute the ScriptBlock dynamically
-					if (Invoke-Command -ScriptBlock $Rule.IsSecure -ArgumentList $HeaderValue) {
+					if (Invoke-Command -ScriptBlock $rule.IsSecure -ArgumentList $currentHeader) {
 						# Secure
 					} else {
 						# Insecure
 					}
 				} catch {
-					Write-Log "Error" "Error evaluating rule $($Rule.Name): $($_.Exception.Message)"
+					Write-Log "Error" "Error evaluating rule $($rule.Name): $($_.Exception.Message)"
 				}
 
 				# Append results to report object

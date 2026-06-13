@@ -11,15 +11,14 @@
 ## About <a name = "about"></a>
 
 ### Summary <a name = "about-summary"></a>
-A collection of security scripts designed for rapid vulnerability assessment and Living of the Land capabilities. These snippets are designed to be lightweight, portable, and easily integrated into larger automation pipelines
+A collection of security scripts designed for rapid security assessment and Living of the Land capabilities. These snippets are designed to be lightweight, portable, and easily integrated into larger automation pipelines
 
 ### Structure <a name = "about-structure"></a>
 
 ```txt
 ./
-├── vulns/ # CVE mapped scripts for checking know vulnerabilities
-├── network/ # Network related scanners and utilities
-└── web/ # web-server specific checks
+├── TA0007/ # Acquire knowledge about the system and internal network
+└── TA0043/ # Information gathering to support targeting
 ```
 
 ---

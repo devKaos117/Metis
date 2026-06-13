@@ -222,14 +222,17 @@ function Test-Host {
 
 		[Parameter(Mandatory)]
 		[ValidateRange(1,[int]::MaxValue)]
-		[int]$Timeout
+		[int]$Timeout,
+
+		[Parameter]
+		[switch]$PerformPing = $false
 	)
 
 	process {
 		$alive = $false
 		$reason = "No port responded"
 
-		if ((Test-Connection -ComputerName $Target -Count 1 -Quiet -TimeoutSeconds ([math]::Ceiling($Timeout / 1000))) -and $false) {
+		if ($PerformPing -and (Test-Connection -ComputerName $Target -Count 1 -Quiet -TimeoutSeconds ([math]::Ceiling($Timeout / 1000)))) {
 			$alive = $true
 			$reason = "Host responded to ICMP"
 		} else {
@@ -252,7 +255,7 @@ function Test-Host {
 	}
 }
 
-function Test-Servers {
+function Test-Hosts {
 	[CmdletBinding()]
 	[OutputType([PSCustomObject])]
 	param(
@@ -269,7 +272,7 @@ function Test-Servers {
 	)
 
 	process {
-		Write-Log "Info" "Initializing tests against ${Targets.Count} servers"
+		Write-Log "Info" "Initializing tests against ${Targets.Count} hosts"
 
 		$result = New-Object System.Collections.Generic.List[object]
 
@@ -303,51 +306,4 @@ function Test-Servers {
 
 		return $result
 	}
-}
-
-# ============================================================================
-# MAIN
-# ============================================================================
-function Invoke-Main {
-	param(
-		[Parameter(Mandatory, Position = 0)]
-		[ValidateScript({
-			if (-not (Test-Path $_)) {
-				throw "File not found: $_"
-			}
-			return $true
-		})]
-		[string]$FilePath
-	)
-
-	process{
-		try {
-			Write-Log "Info" "Loading hostnames from file: $FilePath"
-
-			$targets = Get-Content -Path $FilePath | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
-
-			if (-not $targets -or $targets.Count -eq 0) {
-				Write-Log "Error" "No valid targets found in file"
-				exit 1
-			}
-
-			Write-Log "Info" "Loaded $($targets.Count) targets"
-
-			$ports = @(80, 443, 445)
-			$timeout = 300
-
-			$results = Test-Servers -Targets $targets -Ports $ports -Timeout $timeout
-
-			Write-Log "Info" "Scan completed"
-			$results | Format-Table -AutoSize
-		}
-		catch {
-			Write-Log "Critical" "Failed during main execution: $($_.Exception.Message)"
-			exit 1
-		}
-	}
-}
-
-if ($MyInvocation.InvocationName -ne '.') {
-	Invoke-Main @args
 }
