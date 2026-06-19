@@ -21,14 +21,14 @@ $ErrorActionPreference = "Stop"
 # LOGGER
 # ============================================================================
 # ============ Constants
-Set-Variable LOG_NONE -Option ReadOnly -Scope Script -Visibility Private -Value 99
-Set-Variable LOG_CRITICAL -Option ReadOnly -Scope Script -Visibility Private -Value 50
-Set-Variable LOG_ERROR -Option ReadOnly -Scope Script -Visibility Private -Value 40
-Set-Variable LOG_WARNING -Option ReadOnly -Scope Script -Visibility Private -Value 30
-Set-Variable LOG_INFO -Option ReadOnly -Scope Script -Visibility Private -Value 20
-Set-Variable LOG_DEBUG -Option ReadOnly -Scope Script -Visibility Private -Value 10
+Set-Variable -Name LOG_NONE -Option Constant -Scope Script -Visibility Private -Value 99
+Set-Variable -Name LOG_CRITICAL -Option Constant -Scope Script -Visibility Private -Value 50
+Set-Variable -Name LOG_ERROR -Option Constant -Scope Script -Visibility Private -Value 40
+Set-Variable -Name LOG_WARNING -Option Constant -Scope Script -Visibility Private -Value 30
+Set-Variable -Name LOG_INFO -Option Constant -Scope Script -Visibility Private -Value 20
+Set-Variable -Name LOG_DEBUG -Option Constant -Scope Script -Visibility Private -Value 10
 
-Set-Variable LogLevelNames -Option ReadOnly -Scope Script -Visibility Private -Value @{
+Set-Variable -Name LogLevelNames -Option Constant -Scope Script -Visibility Private -Value @{
 	99 = "NONE"
 	50 = "CRITICAL"
 	40 = "ERROR"
@@ -37,7 +37,7 @@ Set-Variable LogLevelNames -Option ReadOnly -Scope Script -Visibility Private -V
 	10 = "DEBUG"
 }
 
-Set-Variable LogColors -Option ReadOnly -Scope Script -Visibility Private -Value @{
+Set-Variable -Name LogColors -Option Constant -Scope Script -Visibility Private -Value @{
 	99 = "Gray"		# Reset/None
 	50 = "Magenta"	# Critical
 	40 = "Red"		# Error
@@ -47,9 +47,9 @@ Set-Variable LogColors -Option ReadOnly -Scope Script -Visibility Private -Value
 	0 = "White"		# Custom
 }
 
-Set-Variable TimestampFormat -Option ReadOnly -Scope Script -Visibility Private -Value "HH:mm:ss.fff"
-Set-Variable ColorizeMessage -Option ReadOnly -Scope Script -Visibility Private -Value $true
-Set-Variable CurrentLogLevel -Scope Script -Visibility Private -Value $LOG_INFO
+Set-Variable -Name TimestampFormat -Option Constant -Scope Script -Visibility Private -Value "HH:mm:ss.fff"
+Set-Variable -Name ColorizeMessage -Option Constant -Scope Script -Visibility Private -Value $true
+Set-Variable -Name CurrentLogLevel -Scope Script -Visibility Private -Value $LOG_INFO
 
 # ============ Traceback the calling stack
 function Get-CallerInfo {
