@@ -95,7 +95,7 @@ function Test-VirtualEnvironment {
 		# QEMU
 		# Parallels
 		# Xen
-		
+
 		# Microsoft Corporation
 		# Oracle
 		# VMware, Inc.
@@ -242,6 +242,7 @@ function Temp-SecurityState {
 	# $cmd = if ($psv -ge 3) { 'Get-CimInstance' } else { 'Get-WmiObject' }
 	# $avList = & $cmd -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object { $_.displayName -notlike 'windows' } | Select-Object -ExpandProperty displayName
 	WMIC /Node:localhost /Namespace:\\root\SecurityCenter2 Path AntiVirusProduct Get displayName
+	(Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct).displayName
 	Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction SilentlyContinue
 }
 
@@ -265,10 +266,10 @@ function Temp-Identities {
 	# Logged in with Authentication Type
 	Write-Host "Logged in with $($identity.AuthenticationType)"
 	# hostname\username (SID)
-	Write-Host "$($identity.Name) ($sid)"
+	Write-Host "$($identity.Name) ($($identity.User.Value))"
 	# Privileges
 	# Current groups (SID)
-	
+
 	# hostname\username (SID) IsDisabled? IsAdmin?
 	# groups (SID)
 	# Last logon time
@@ -315,15 +316,15 @@ function Temp-Identities {
 		Evaluates multiple data sources for homogeneous results and returns a consistency and uncertainty report
 	.DESCRIPTION
 		The Test-Consistency function analyzes a hashtable of state data. It logically isolates "Unknown" or null values from explicit values
-        It calculates an Uncertainty Index (ratio of unknown to total values) and a Consistency Index (ratio of the statistical mode to the known values)
+		It calculates an Uncertainty Index (ratio of unknown to total values) and a Consistency Index (ratio of the statistical mode to the known values)
 		If a single mode exists, it is returned as the consolidated result. Any discrepancies or unknown values are formatted into a message for review
 	.PARAMETER StateData
 		Specifies the hashtable containing the state information. The keys should be the name of the source, and the values should be its raw information
 	.EXAMPLE
 		$data = @{
-			"ApiEEndpoint" = "Running"
-			"DbQuery"      = "Unknown"
-			"LocalLog"     = "Running"
+			"ApiEEndpoint"	= "Running"
+			"DbQuery"		= "Unknown"
+			"LocalLog"		= "Running"
 		}
 		Test-Consistency -StateData $data
 		# Consistency: 1.0
@@ -345,14 +346,14 @@ function Temp-Identities {
 		Strict Type Evaluation: This function performs strict variable types evaluation
 #>
 function Test-Consistency {
-    [CmdletBinding()]
-    [OutputType([System.Management.Automation.PSCustomObject])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [hashtable]$InputData
-    )
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSCustomObject])]
+	param (
+		[Parameter(Mandatory = $true)]
+		[hashtable]$InputData
+	)
 
-    process {
+	process {
 		function Build-Message {
 			[CmdletBinding()]
 			[OutputType([string])]
@@ -361,61 +362,61 @@ function Test-Consistency {
 			)
 			process {
 				$msgBuilder = [System.Text.StringBuilder]::new()
-	
+
 				foreach ($entry in ($Entries | Sort-Object Name)) {
 					[void]$msgBuilder.Append("`n`t`t$($entry.Name): $($entry.Value)")
 				}
 				return $msgBuilder.ToString()
 			}
 		}
-        
+
 		[int]$totalCount = $InputData.Count
 
-        if ($totalCount -eq 0) {
-            return [PSCustomObject]@{
-                Consistency = 0.0
-                Uncertainty = 1.0
-                Message     = "No data provided"
-                Result      = "Unknown"
-            }
-        }
+		if ($totalCount -eq 0) {
+			return [PSCustomObject]@{
+				Consistency = 0.0
+				Uncertainty = 1.0
+				Message = "No data provided"
+				Result = "Unknown"
+			}
+		}
 
-        # Isolate known and unknown datasets
-        $entries = @($InputData.GetEnumerator())
-		[array]$unknowns = $entries | Where-Object { $_.Value -eq "Unknown" -or [string]::IsNullOrWhiteSpace($_.Value) }
-		[array]$knowns = $entries | Where-Object { $_.Value -ne "Unknown" -and -not [string]::IsNullOrWhiteSpace($_.Value) }
+		# Isolate known and unknown datasets using strict type checking
+		$entries = @($InputData.GetEnumerator())
+		[array]$unknowns = $entries | Where-Object { ($null -eq $_.Value) -or ($_.Value -is [string] -and ($_.Value -eq "Unknown" -or [string]::IsNullOrWhiteSpace($_.Value))) }
+		[array]$knowns = $entries | Where-Object { ($null -ne $_.Value) -and -not ($_.Value -is [string] -and ($_.Value -eq "Unknown" -or [string]::IsNullOrWhiteSpace($_.Value))) }
 
-        [int]$uCount = $unknowns.Count
-        [int]$kCount = $knowns.Count
+		[int]$uCount = $unknowns.Count
+		[int]$kCount = $knowns.Count
 
-        [double]$uncertainty = [double]$uCount / $totalCount
-        [double]$consistency = 0.0
-        [string]$result = "Unknown"
+		[double]$uncertainty = [double]$uCount / $totalCount
+		[double]$consistency = 0.0
+		[string]$result = "Unknown"
 		[string]$message = $null
 
-        if ($kCount -gt 0) {
-            # Group known values to determine statistical mode and consistency
-            $groupedKnowns = $knowns | Group-Object -Property Value | Sort-Object Count -Descending
-			[int]$mode = $groupedKnowns[0].Count
-            $consistency = [double]$mode / $kCount
+		if ($kCount -gt 0) {
+			# Group known values to determine statistical mode and consistency
+			$groupedKnowns = $knowns | Group-Object -Property Value | Sort-Object Count -Descending
+			[int]$mCount = $groupedKnowns[0].Count
+			$consistency = [double]$mCount / $kCount
 
-            $result = $groupedKnowns[0].Name
+			$result = $groupedKnowns[0].Group[0].Value
 			# Redefine result in the presence of known discrepancies
 			if ($consistency -lt 1) {
 				$result = "Inconsistent"
 				$message = "$(Build-Message -Entries $entries)"
 			}
-        } else {
+		} else {
 			$message = "$(Build-Message -Entries $entries)"
-        }
+		}
 
-        return [PSCustomObject]@{
-            Consistency = [math]::Round($consistency, 3)
-            Uncertainty = [math]::Round($uncertainty, 3)
-            Message     = $message
-            Result      = $result
-        }
-    }
+		return [PSCustomObject]@{
+			Consistency = [math]::Round($consistency, 3)
+			Uncertainty = [math]::Round($uncertainty, 3)
+			Message = $message
+			Result = $result
+		}
+	}
 }
 
 # ============================================================================
