@@ -132,7 +132,7 @@ function Test-VirtualEnvironment {
 				$message = "`t$($CYAN)[*]$($RESET) Virtual environment isolation $($RED)Absent$($RESET)"
 			}
 		} else {
-			$message = "`t$($YELLOW)[?]$($RESET) $(consistencyReport.Result) virtual environment isolation state:$($consistencyReport.Message)"
+			$message = "`t$($YELLOW)[?]$($RESET) $($consistencyReport.Result) virtual environment isolation state:$($consistencyReport.Message)"
 		}
 
 		# Return report object
@@ -219,7 +219,7 @@ function Test-SecureBoot {
 				$message = "`t$($CYAN)[*]$($RESET) SecureBoot $($RED)Disabled$($RESET)"
 			}
 		} else {
-			$message = "`t$($YELLOW)[?]$($RESET) $(consistencyReport.Result) SecureBoot state:$($consistencyReport.Message)"
+			$message = "`t$($YELLOW)[?]$($RESET) $($consistencyReport.Result) SecureBoot state:$($consistencyReport.Message)"
 		}
 
 		# Return report object
