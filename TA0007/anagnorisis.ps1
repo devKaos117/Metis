@@ -1,26 +1,36 @@
-# ============================================================================
-# INFO
-# ============================================================================
-# ============ Author
-# https://www.linkedin.com/in/kaos/
-# ============ Description
-# Anagnorisis
-# The sudden moment of critical discovery and revelation. Windows modern enumeration script for a rapid environment contextualization
-# ============ Usage
-# ============ References
-# https://github.com/peass-ng/PEASS-ng
-
+<#
+	.SYNOPSIS
+		Anagnorisis: The sudden moment of critical discovery and revelation. Windows modern enumeration script for a rapid environment contextualization
+	.DESCRIPTION
+		...
+	.PARAMETER ...
+		...
+	.EXAMPLE
+		...
+	.INPUTS
+		...
+	.OUTPUTS
+		...
+	.COMPONENT
+		...
+	.LINK
+		...
+	.NOTES
+		Author: https://www.linkedin.com/in/kaos/
+		References:
+			https://github.com/peass-ng/PEASS-ng
+#>
 # ============================================================================
 # INITIALIZATIONS
 # ============================================================================
-$ErrorActionPreference = "Stop"
+[CmdletBinding()]
+[OutputType([System.Void])]
+param(
+	[switch]$EnumerateDomain,
+	[switch]$VerboseOutput
+)
 
-Set-Variable -Name ESCAPE_CHAR -Option Constant -Scope Script -Visibility Private -Value [char]27
-Set-Variable -Name RED -Option Constant -Scope Script -Visibility Private -Value "$ESCAPE_CHAR[31m"
-Set-Variable -Name YELLOW -Option Constant -Scope Script -Visibility Private -Value "$ESCAPE_CHAR[33m"
-Set-Variable -Name GREEN -Option Constant -Scope Script -Visibility Private -Value "$ESCAPE_CHAR[32m"
-Set-Variable -Name CYAN -Option Constant -Scope Script -Visibility Private -Value "$ESCAPE_CHAR[36m"
-Set-Variable -Name RESET -Option Constant -Scope Script -Visibility Private -Value "$ESCAPE_CHAR[0m"
+$ErrorActionPreference = "Stop"
 
 # ============================================================================
 # PLATFORM
@@ -127,12 +137,12 @@ function Test-VirtualEnvironment {
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -ne "Unknown") {
 			if ($consistencyReport.Result) {
-				$message = "`t$($CYAN)[*]$($RESET) Virtual environment isolation $($GREEN)Detected$($RESET)"
+				$message = "`t[*] Virtual environment isolation Detected"
 			} else {
-				$message = "`t$($CYAN)[*]$($RESET) Virtual environment isolation $($RED)Absent$($RESET)"
+				$message = "`t[*] Virtual environment isolation Absent"
 			}
 		} else {
-			$message = "`t$($YELLOW)[?]$($RESET) $($consistencyReport.Result) virtual environment isolation state:$($consistencyReport.Message)"
+			$message = "`t[?] $($consistencyReport.Result) virtual environment isolation state"
 		}
 
 		# Return report object
@@ -214,12 +224,12 @@ function Test-SecureBoot {
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -is [bool]) {
 			if ($consistencyReport.Result) {
-				$message = "`t$($CYAN)[*]$($RESET) SecureBoot $($GREEN)Enabled$($RESET)"
+				$message = "`t[*] SecureBoot Enabled"
 			} else {
-				$message = "`t$($CYAN)[*]$($RESET) SecureBoot $($RED)Disabled$($RESET)"
+				$message = "`t[*] SecureBoot Disabled"
 			}
 		} else {
-			$message = "`t$($YELLOW)[?]$($RESET) $($consistencyReport.Result) SecureBoot state:$($consistencyReport.Message)"
+			$message = "`t[?] $($consistencyReport.Result) SecureBoot state"
 		}
 
 		# Return report object
@@ -361,6 +371,9 @@ function Test-Consistency {
 				[System.Object[]]$Entries
 			)
 			process {
+				if (-not $VerboseOutput){
+					return $null
+				}
 				$msgBuilder = [System.Text.StringBuilder]::new()
 
 				foreach ($entry in ($Entries | Sort-Object Name)) {
@@ -391,8 +404,8 @@ function Test-Consistency {
 
 		[double]$uncertainty = [double]$uCount / $totalCount
 		[double]$consistency = 0.0
-		[string]$result = "Unknown"
 		[string]$message = $null
+		$result = "Unknown"
 
 		if ($kCount -gt 0) {
 			# Group known values to determine statistical mode and consistency
@@ -422,84 +435,37 @@ function Test-Consistency {
 # ============================================================================
 # MAIN
 # ============================================================================
-<#
-	.SYNOPSIS
-
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
-function Invoke-Anagnorisis{
-	[CmdletBinding()]
-	[OutputType([System.Void])]
-	param(
-		[Parameter()]
-		[switch]$EnumerateDomain
+$tests = [ordered]@{
+	Platform = @()
+	SysInfo = @()
+	SecurityState = @(
+		{Test-VirtualEnvironment}
+		{Test-SecureBoot}
 	)
+	Network = @()
+	Identities = @()
+	Domain = @()
+	Resources = @()
+	Files = @()
+}
 
-	process {
-		$tests = [ordered]@{
-			Platform = @()
-			SysInfo = @(
-				{Temp-Sysinfo}
-			)
-			SecurityState = @(
-				{Test-VirtualEnvironment}
-				{Test-SecureBoot}
-				{Temp-SecurityState}
-			)
-			Network = @()
-			Identities = @(
-				{Temp-Identities}
-			)
-			Domain = @()
-			Resources = @()
-			Files = @()
-		}
+$stopwatch = [system.diagnostics.stopwatch]::StartNew()
 
-		$stopwatch = [system.diagnostics.stopwatch]::StartNew()
-
-		foreach ($section in $tests.GetEnumerator()) {
-			Write-Host "[+] $($section.Name) Enumeration ($($section.Value.Count))"
-			foreach ($test in $section.Value) {
-				try {
-					$result = Invoke-Command -ScriptBlock $test
-					if ($null -ne $result.Message) {
-						Write-Host $result.Message
-					} else {
-						Write-Host "`t$($YELLOW)[?]$($RESET) Component execution returned no message: $($test)"
-					}
-				}
-				catch {
-					Write-Host "`t$($RED)[!]$($RESET) Error during component execution:`n`t`t$($test)`n`t`t$($_.Exception.Message)"
-				}
+foreach ($section in $tests.GetEnumerator()) {
+	Write-Host "[+] $($section.Name) Enumeration ($($section.Value.Count))"
+	foreach ($test in $section.Value) {
+		try {
+			$result = Invoke-Command -ScriptBlock $test
+			if ($null -ne $result.Message) {
+				Write-Host $result.Message
+			} else {
+				Write-Host "`t[?] Component execution returned no message: $($test)"
 			}
 		}
-
-		Write-Host "$($GREEN)Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds$($RESET)"
+		catch {
+			Write-Host "`t[!] Error during component execution:`n`t`t$($test)`n`t`t$($_.Exception.Message)"
+		}
 	}
 }
 
-
-# DESKTOP-0OOLLC2 - 2026-04-03T06:19:22
-# Windows 10 Pro 21H2 en-US (Win32NT 10.0.22000 64-bit)
-# Updates: KB5025186,KB5011048,KB5030842,KB5031591,KB5008295
-# Security Updates: KB5031358
-# Hypervisor: VMware, Inc. (VMware7,1)
-# SecureBoot is Enabled
-# Logged in with NTLM
-# DESKTOP-0OOLLC2\Administrator
-# Done in 0.505 seconds
+Write-Host "Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds"
