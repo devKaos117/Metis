@@ -137,9 +137,9 @@ function Test-VirtualEnvironment {
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -ne "Unknown") {
 			if ($consistencyReport.Result) {
-				$message = "`t[*] Virtual environment isolation Detected"
+				$message = "`t[+] Virtual environment isolation Detected"
 			} else {
-				$message = "`t[*] Virtual environment isolation Absent"
+				$message = "`t[-] Virtual environment isolation Absent"
 			}
 		} else {
 			$message = "`t[?] $($consistencyReport.Result) virtual environment isolation state"
@@ -224,9 +224,9 @@ function Test-SecureBoot {
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -is [bool]) {
 			if ($consistencyReport.Result) {
-				$message = "`t[*] SecureBoot Enabled"
+				$message = "`t[+] SecureBoot Enabled"
 			} else {
-				$message = "`t[*] SecureBoot Disabled"
+				$message = "`t[-] SecureBoot Disabled"
 			}
 		} else {
 			$message = "`t[?] $($consistencyReport.Result) SecureBoot state"
@@ -452,7 +452,7 @@ $tests = [ordered]@{
 $stopwatch = [system.diagnostics.stopwatch]::StartNew()
 
 foreach ($section in $tests.GetEnumerator()) {
-	Write-Host "[+] $($section.Name) Enumeration ($($section.Value.Count))"
+	Write-Host "[*] $($section.Name) Enumeration ($($section.Value.Count))"
 	foreach ($test in $section.Value) {
 		try {
 			$result = Invoke-Command -ScriptBlock $test
