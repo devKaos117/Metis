@@ -32,6 +32,40 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# <#
+# 	.SYNOPSIS
+# 	.DESCRIPTION
+# 	.PARAMETER None
+# 	.EXAMPLE
+# 	.INPUTS
+# 	.OUTPUTS
+# 		System.Management.Automation.PSCustomObject
+# 	.COMPONENT
+# 		SecurityState/VirtualEnvironment
+# 	.LINK
+# 	.NOTES
+# 		Date: June 2026
+# #>
+# function Get- {
+# 	[CmdletBinding()]
+# 	[OutputType([System.Management.Automation.PSCustomObject])]
+# 	param()
+# 	process {
+# 		$results = @{}
+# 		$message = $null
+
+# 		# Return report object
+# 		return [PSCustomObject]@{
+# 			Component = ""
+# 			Consistency = 1.0
+# 			Uncertainty = 0.0
+# 			Values = $results
+# 			Result = ""
+# 			Message = $message
+# 		}
+# 	}
+# }
+
 # ============================================================================
 # PLATFORM
 # ============================================================================
@@ -49,24 +83,88 @@ $ErrorActionPreference = "Stop"
 # SYSINFO
 # ============================================================================
 function Temp-Sysinfo {
-	# hostname, Current Time
-	$hostname = [System.Net.Dns]::GetHostName()
-	$time = [System.DateTime]::UtcNow.ToString("s")
-	Write-Host "$hostname - $time"
-	# OS Name SystemLang Architecture (build)
-	$os_name = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName
-	$os_displayVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").DisplayVersion
-	$os_lang = [System.Globalization.CultureInfo]::InstalledUICulture.Name
-	$os_kernel = [System.Environment]::OSVersion.Platform
-	$os_version = (Get-CimInstance Win32_OperatingSystem).Version
-	$os_arch = (Get-CimInstance Win32_OperatingSystem).OSArchitecture
-	Write-Host "$os_name $os_displayVersion $os_lang ($os_kernel $os_version $os_arch)"
 	# Non security updates
 	$updates = (Get-HotFix | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
 	Write-Host "Updates: $updates"
 	# Security updates
 	$security_updates = (Get-HotFix | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
 	Write-Host "Security Updates: $security_updates"
+}
+
+<#
+	.SYNOPSIS
+	.DESCRIPTION
+	.PARAMETER None
+	.EXAMPLE
+	.INPUTS
+	.OUTPUTS
+		System.Management.Automation.PSCustomObject
+	.COMPONENT
+		SysInfo/OSName
+	.LINK
+	.NOTES
+		Date: June 2026
+#>
+function Get-OSName {
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSCustomObject])]
+	param()
+	process {
+		# Windows NT Version registry key
+		$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
+		# Language
+		$language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
+		# Assign values
+		$values = @{ Name = $winNtVersion.Name; DisplayVersion = $winNtVersion.DisplayVersion; Language = $language }
+		$result = "$($values.Name) $($values.DisplayVersion) $($values.Language)"
+		# Return report object
+		return [PSCustomObject]@{
+			Component = "OSName"
+			Consistency = 1.0
+			Uncertainty = 0.0
+			Values = $values
+			Result = $result
+			Message = "`t[+] Operating system: $result"
+		}
+	}
+}
+
+<#
+	.SYNOPSIS
+	.DESCRIPTION
+	.PARAMETER None
+	.EXAMPLE
+	.INPUTS
+	.OUTPUTS
+		System.Management.Automation.PSCustomObject
+	.COMPONENT
+		SysInfo/OSVersion
+	.LINK
+	.NOTES
+		Date: June 2026
+#>
+function Get-OSVersion {
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSCustomObject])]
+	param()
+	process {
+		# Common Information Model Class
+		$CIMWin32 = Get-CimInstance Win32_OperatingSystem
+		# Kernel
+		$kernel = [System.Environment]::OSVersion.Platform
+		# Assign values
+		$values = @{ Kernel = $kernel; Version = $CIMWin32.Version; Architecture = $CIMWin32.OSArchitecture }
+		$result = "$($values.Kernel) $($values.Version) $($values.Architecture)"
+		# Return report object
+		return [PSCustomObject]@{
+			Component = "OSVersion"
+			Consistency = 1.0
+			Uncertainty = 0.0
+			Values = $values
+			Result = $result
+			Message = "`t[+] OS version: $result"
+		}
+	}
 }
 
 # ============================================================================
@@ -91,7 +189,7 @@ function Test-VirtualEnvironment {
 	[OutputType([System.Management.Automation.PSCustomObject])]
 	param()
 	process {
-		$results = @{
+		$values = @{
 			CIMComputerSystem = $null
 			CIMBios = $null
 			CIMBaseBoard = $null
@@ -114,32 +212,32 @@ function Test-VirtualEnvironment {
 		try {
 			Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction Stop
 		} catch {
-			$results.CIMComputerSystem = "Unknown"
+			$values.CIMComputerSystem = "Unknown"
 		}
 
 		try {
 			Get-CimInstance -ClassName Win32_Bios -Property SerialNumber -ErrorAction Stop
 		}
 		catch {
-			$results.CIMBios = "Unknown"
+			$values.CIMBios = "Unknown"
 		}
 
 		try {
 			Get-CimInstance -ClassName Win32_BaseBoard -Property Product, Manufacturer -ErrorAction Stop
 		}
 		catch {
-			$results.CIMBaseBoard = "Unknown"
+			$values.CIMBaseBoard = "Unknown"
 		}
 
 		# Discrepancy Check
-		$consistencyReport = Test-Consistency -InputData $results
+		$consistencyReport = Test-Consistency -InputData $values
 
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -ne "Unknown") {
 			if ($consistencyReport.Result) {
-				$message = "`t[+] Virtual environment isolation Detected"
+				$message = "`t[+] Virtual environment isolation detected"
 			} else {
-				$message = "`t[-] Virtual environment isolation Absent"
+				$message = "`t[-] Virtual environment isolation absent"
 			}
 		} else {
 			$message = "`t[?] $($consistencyReport.Result) virtual environment isolation state"
@@ -150,7 +248,7 @@ function Test-VirtualEnvironment {
 			Component = "VirtualEnvironment"
 			Consistency = $consistencyReport.Consistency
 			Uncertainty = $consistencyReport.Uncertainty
-			Values = $results
+			Values = $values
 			Result = $consistencyReport.Result
 			Message = $message
 		}
@@ -183,7 +281,7 @@ function Test-SecureBoot {
 	[OutputType([System.Management.Automation.PSCustomObject])]
 	param()
 	process {
-		$results = @{
+		$values = @{
 			RegKeyLSA = $null
 			RegKeyUEFI = $null
 			CIMClass = $null
@@ -194,20 +292,20 @@ function Test-SecureBoot {
 		try {
 			$regkey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction Stop
 			if ($null -ne $regkey.SecureBoot) {
-				$results.RegKeyLSA = [bool]$regkey.SecureBoot
+				$values.RegKeyLSA = [bool]$regkey.SecureBoot
 			} else {
 				throw "SecureBoot value not found in LSA registry key"
 			}
 		} catch {
-			$results.RegKeyLSA = "Unknown"
+			$values.RegKeyLSA = "Unknown"
 		}
 
 		# UEFI Registry Key
 		try {
 			$regkey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop
-			$results.RegKeyUEFI = [bool]$regkey.UEFISecureBootEnabled
+			$values.RegKeyUEFI = [bool]$regkey.UEFISecureBootEnabled
 		} catch {
-			$results.RegKeyUEFI = "Unknown"
+			$values.RegKeyUEFI = "Unknown"
 		}
 
 		# Common Information Model Class
@@ -215,21 +313,21 @@ function Test-SecureBoot {
 			throw "Not implemented yet"
 			# $cimInstance = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop
 		} catch {
-			$results.CIMClass = "Unknown"
+			$values.CIMClass = "Unknown"
 		}
 
 		# Discrepancy Check
-		$consistencyReport = Test-Consistency -InputData $results
+		$consistencyReport = Test-Consistency -InputData $values
 
 		# Determine result
 		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -is [bool]) {
 			if ($consistencyReport.Result) {
-				$message = "`t[+] SecureBoot Enabled"
+				$message = "`t[+] Secure boot Enabled"
 			} else {
-				$message = "`t[-] SecureBoot Disabled"
+				$message = "`t[-] Secure boot Disabled"
 			}
 		} else {
-			$message = "`t[?] $($consistencyReport.Result) SecureBoot state"
+			$message = "`t[?] $($consistencyReport.Result) Secure boot state"
 		}
 
 		# Return report object
@@ -237,7 +335,7 @@ function Test-SecureBoot {
 			Component = "SecureBoot"
 			Consistency = $consistencyReport.Consistency
 			Uncertainty = $consistencyReport.Uncertainty
-			Values = $results
+			Values = $values
 			Result = $consistencyReport.Result
 			Message = $message
 		}
@@ -260,6 +358,59 @@ function Temp-SecurityState {
 # ============================================================================
 # NETWORK
 # ============================================================================
+<#
+	.SYNOPSIS
+	.DESCRIPTION
+	.PARAMETER None
+	.EXAMPLE
+	.INPUTS
+	.OUTPUTS
+		System.Management.Automation.PSCustomObject
+	.COMPONENT
+		Network/Hostname
+	.LINK
+	.NOTES
+		Date: June 2026
+#>
+function Get-Hostname {
+	[CmdletBinding()]
+	[OutputType([System.Management.Automation.PSCustomObject])]
+	param()
+	process {
+		# Local Resolver
+		$hostname = [System.Net.Dns]::GetHostName()
+		# UTC Datetime
+		$time = [System.DateTime]::UtcNow.ToString("s")
+		$values = @{ Hostname = $hostname; Time = $time }
+		$result = "$($values.Hostname) - $($values.Time)"
+		# Return report object
+		return [PSCustomObject]@{
+			Component = "Hostname"
+			Consistency = 1.0
+			Uncertainty = 0.0
+			Values = $values
+			Result = $result
+			Message = "`t[+] $result"
+		}
+
+		# Common Information Model Class
+		$CIMWin32 = Get-CimInstance Win32_OperatingSystem
+		# Kernel
+		$kernel = [System.Environment]::OSVersion.Platform
+		# Assign values
+		$values = @{ Kernel = $kernel; Version = $CIMWin32.Version; Architecture = $CIMWin32.OSArchitecture }
+		$result = "$($values.Kernel) $($values.Version) $($values.Architecture)"
+		# Return report object
+		return [PSCustomObject]@{
+			Component = "OSVersion"
+			Consistency = 1.0
+			Uncertainty = 0.0
+			Values = $values
+			Result = $result
+			Message = "`t[+] OS version: $result"
+		}
+	}
+}
 # Network shares
 # network ifaces and known hosts
 # seatbelt arp tables
@@ -290,6 +441,7 @@ function Temp-Identities {
 # ============================================================================
 # [System.DirectoryServices.ActiveDirectory.Domain]
 # $domain = try {[System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain() } catch { $null }
+# time
 
 # ============================================================================
 # RESOURCES
@@ -437,12 +589,17 @@ function Test-Consistency {
 # ============================================================================
 $tests = [ordered]@{
 	Platform = @()
-	SysInfo = @()
+	SysInfo = @(
+		{Get-OSName}
+		{Get-OSVersion}
+	)
 	SecurityState = @(
 		{Test-VirtualEnvironment}
 		{Test-SecureBoot}
 	)
-	Network = @()
+	Network = @(
+		{Get-Hostname}
+	)
 	Identities = @()
 	Domain = @()
 	Resources = @()
