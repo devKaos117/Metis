@@ -19,6 +19,9 @@
 		Author: https://www.linkedin.com/in/kaos/
 		References:
 			https://github.com/peass-ng/PEASS-ng
+			https://book.hacktricks.wiki/en/windows-hardening/checklist-windows-privilege-escalation.html
+			https://github.com/411Hall/JAWS
+			https://github.com/GhostPack/Seatbelt
 #>
 # ============================================================================
 # INITIALIZATIONS
@@ -230,6 +233,7 @@ Write-Color "`t{{Cyan:[+] Owner}}: $winOwner"
 # ======== Initialization Time
 Write-Color "`t{{Cyan:[+] Initialized}}: $($CIMWin32OS.LastBootUpTime)"
 # ======== Hotfixes
+# (Get-Wmiobject -class Win32_QuickFixEngineering -namespace "root\cimv2" | select HotFixID, InstalledOn| ft -autosize | out-string )
 # Non security updates
 $updates = (Get-HotFix | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
 Write-Color "`t{{Cyan:[+] Hotfixes}}: $updates"
@@ -315,6 +319,14 @@ Write-Color "{{Magenta:[*] Domain}}:"
 # ======== Domain Controllers
 # DC
 # kerberos / auth server
+# ======== ADSI
+# $adsi = [ADSI]"WinNT://$env:COMPUTERNAME"
+# $adsi.Children | where {$_.SchemaClassName -eq 'user'} | Foreach-Object {
+# 	$groups = $_.Groups() | Foreach-Object {$_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)}
+# 	$output = $output +  "----------`r`n"
+# 	$output = $output +  "Username: " + $_.Name +  "`r`n"
+# 	$output = $output +  "Groups:   "  + $groups +  "`r`n"
+# }
 
 # ============================================================================
 # RESOURCES
@@ -326,19 +338,74 @@ Write-Color "{{Magenta:[*] Resources}}:"
 # ====== Tasks
 # scheduled tasks with hostname\taskname, trigger, action (permissions)
 
+# ====== DLLs
+
 # ============================================================================
 # FILES
 # ============================================================================
 Write-Color "{{Magenta:[*] Files}}:"
 # Recieve a target dir, check permissions, list files based on a filetype list, regex match into the files and report back
-
 # ====== Useful Software and Related Files
+# (get-wmiobject -Class win32_product | select Name, Version, Caption | ft -hidetableheaders -autosize| out-string -Width 4096)
 # ssh
 # putty
 # browsers
 # password managers
 # web application
 # DBMS
+
+# $files = get-childitem C:\
+# foreach ($file in $files){
+# 	try {
+# 		$output = $output +  (get-childitem "C:\$file" -include *.ps1,*.bat,*.com,*.vbs,*.txt,*.html,*.conf,*.rdp,.*inf,*.ini -recurse -EA SilentlyContinue | get-acl -EA SilentlyContinue | select path -expand access | 
+# 		where {$_.identityreference -notmatch "BUILTIN|NT AUTHORITY|EVERYONE|CREATOR OWNER|NT SERVICE"} | where {$_.filesystemrights -match "FullControl|Modify"} | 
+# 		ft @{Label="";Expression={Convert-Path $_.Path}}  -hidetableheaders -autosize | out-string -Width 4096)
+# 	} catch {
+# 		$output = $output +   "`nFailed to read more files`r`n"
+# 	}
+# }
+
+# $folders = get-childitem C:\
+# foreach ($folder in $folders){
+# 	try {
+# 		$output = $output +  (Get-ChildItem -Recurse "C:\$folder" -EA SilentlyContinue | ?{ $_.PSIsContainer} | get-acl  | select path -expand access |  
+# 		where {$_.identityreference -notmatch "BUILTIN|NT AUTHORITY|CREATOR OWNER|NT SERVICE"}  | where {$_.filesystemrights -match "FullControl|Modify"} | 
+# 		select path,filesystemrights,IdentityReference |  ft @{Label="";Expression={Convert-Path $_.Path}}  -hidetableheaders -autosize | out-string -Width 4096)
+# 	}
+# 	catch {
+# 		$output = $output +  "`nFailed to read more folders`r`n"
+# 	}
+# }
+
+# (get-childitem "C:\Users\$env:username\AppData\Roaming\Microsoft\Windows\Recent"  -EA SilentlyContinue | select Name | ft -hidetableheaders | out-string )
+# (get-childitem "C:\Users\" -recurse -Include *.zip,*.rar,*.7z,*.gz,*.conf,*.rdp,*.kdbx,*.crt,*.pem,*.ppk,*.txt,*.xml,*.vnc.*.ini,*.vbs,*.bat,*.ps1,*.cmd -EA SilentlyContinue | %{$_.FullName } | out-string)
+# (Get-ChildItem 'C:\Users' -recurse -EA SilentlyContinue | Sort {$_.LastWriteTime} |  %{$_.FullName } | select -last 10 | ft -hidetableheaders | out-string)
+
+# (cmdkey /list | out-string)
+
+# if (get-itemproperty -path $Winlogon -Name AutoAdminLogon -ErrorAction SilentlyContinue) 
+#         {
+#         if ((get-itemproperty -path $Winlogon -Name AutoAdminLogon).AutoAdminLogon -eq 1) 
+#             {
+#             $Username = (get-itemproperty -path $Winlogon -Name DefaultUserName).DefaultUsername
+#             $output = $output + "The default username is $Username `r`n"
+#             $Password = (get-itemproperty -path $Winlogon -Name DefaultPassword).DefaultPassword
+#             $output = $output + "The default password is $Password `r`n"
+#             $DefaultDomainName = (get-itemproperty -path $Winlogon -Name DefaultDomainName).DefaultDomainName
+#             $output = $output + "The default domainname is $DefaultDomainName `r`n"
+#             }
+#         }
+#     $output = $output +  "`r`n"
+#     if ($OutputFilename.length -gt 0)
+#        {
+#         $output | Out-File -FilePath $OutputFileName -encoding utf8
+#         }
+#     else
+#         {
+#         clear-host
+#         write-output $output
+#         }
+# }
 
 # if (-not (Test-Path $FilePath)) { throw }
 
