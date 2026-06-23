@@ -26,149 +26,42 @@
 [CmdletBinding()]
 [OutputType([System.Void])]
 param(
-	[switch]$EnumerateDomain,
-	[switch]$VerboseOutput
+	[switch]$SkipPlatform,
+	[switch]$SkipSysInfo,
+	[switch]$SkipSecurityState,
+	[switch]$SkipNetwork,
+	[switch]$SkipIdentities,
+	[switch]$SkipDomain,
+	[switch]$SkipResources,
+	[switch]$SkipFiles
 )
 
 $ErrorActionPreference = "Stop"
 
-# <#
-# 	.SYNOPSIS
-# 	.DESCRIPTION
-# 	.PARAMETER None
-# 	.EXAMPLE
-# 	.INPUTS
-# 	.OUTPUTS
-# 		System.Management.Automation.PSCustomObject
-# 	.COMPONENT
-# 		SecurityState/VirtualEnvironment
-# 	.LINK
-# 	.NOTES
-# 		Date: June 2026
-# #>
-# function Get- {
-# 	[CmdletBinding()]
-# 	[OutputType([System.Management.Automation.PSCustomObject])]
-# 	param()
-# 	process {
-# 		$results = @{}
-# 		$message = $null
+# Try to execute script using PowerShell 7+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+	$pwshPaths = @(
+		"$Env:ProgramFiles\PowerShell\7\pwsh.exe",
+		"$Env:LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe",
+		"${Env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe",
+		"$Env:ProgramFiles\PowerShell\7-preview\pwsh.exe"
+	)
+	$pwshPath = $pwshPaths | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
 
-# 		# Return report object
-# 		return [PSCustomObject]@{
-# 			Component = ""
-# 			Consistency = 1.0
-# 			Uncertainty = 0.0
-# 			Values = $results
-# 			Result = ""
-# 			Message = $message
-# 		}
-# 	}
-# }
-
-# ============================================================================
-# PLATFORM
-# ============================================================================
-# Device Model and Manufacturer
-# Get-CimInstance Win32_Bios -Property SerialNumber,SMBIOSBIOSVersion,Manufacturer,Name
-# Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction Stop
-# Motherboard
-# CPU
-# GPU
-# RAM
-# Storage Devices
-# Connected Devices
-
-# ============================================================================
-# SYSINFO
-# ============================================================================
-function Temp-Sysinfo {
-	# Non security updates
-	$updates = (Get-HotFix | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
-	Write-Host "Updates: $updates"
-	# Security updates
-	$security_updates = (Get-HotFix | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
-	Write-Host "Security Updates: $security_updates"
-}
-
-<#
-	.SYNOPSIS
-	.DESCRIPTION
-	.PARAMETER None
-	.EXAMPLE
-	.INPUTS
-	.OUTPUTS
-		System.Management.Automation.PSCustomObject
-	.COMPONENT
-		SysInfo/OSName
-	.LINK
-	.NOTES
-		Date: June 2026
-#>
-function Get-OSName {
-	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param()
-	process {
-		# Windows NT Version registry key
-		$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
-		# Language
-		$language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
-		# Assign values
-		$values = @{ Name = $winNtVersion.Name; DisplayVersion = $winNtVersion.DisplayVersion; Language = $language }
-		$result = "$($values.Name) $($values.DisplayVersion) $($values.Language)"
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "OSName"
-			Consistency = 1.0
-			Uncertainty = 0.0
-			Values = $values
-			Result = $result
-			Message = "`t[+] Operating system: $result"
-		}
+	if ($pwshPath) {
+		Write-Host "[!] Relaunching script in PowerShell 7 using $pwshPath" -ForegroundColor Yellow
+		& $pwshPath -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @args
+		exit
+	} else {
+		Write-Host "[!] Failed to relaunch script in PowerShell 7" -ForegroundColor Red
 	}
 }
 
-<#
-	.SYNOPSIS
-	.DESCRIPTION
-	.PARAMETER None
-	.EXAMPLE
-	.INPUTS
-	.OUTPUTS
-		System.Management.Automation.PSCustomObject
-	.COMPONENT
-		SysInfo/OSVersion
-	.LINK
-	.NOTES
-		Date: June 2026
-#>
-function Get-OSVersion {
-	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param()
-	process {
-		# Common Information Model Class
-		$CIMWin32 = Get-CimInstance Win32_OperatingSystem
-		# Kernel
-		$kernel = [System.Environment]::OSVersion.Platform
-		# Assign values
-		$values = @{ Kernel = $kernel; Version = $CIMWin32.Version; Architecture = $CIMWin32.OSArchitecture }
-		$result = "$($values.Kernel) $($values.Version) $($values.Architecture)"
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "OSVersion"
-			Consistency = 1.0
-			Uncertainty = 0.0
-			Values = $values
-			Result = $result
-			Message = "`t[+] OS version: $result"
-		}
-	}
-}
+# Measure execution timing
+$stopwatch = [system.diagnostics.stopwatch]::StartNew()
 
 # ============================================================================
-# SECURITY STATE
+# UTILITIES
 # ============================================================================
 <#
 	.SYNOPSIS
@@ -184,268 +77,256 @@ function Get-OSVersion {
 	.NOTES
 		Date: June 2026
 #>
-function Test-VirtualEnvironment {
+function Write-Color {
 	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param()
+	[OutputType([System.Void])]
+	param(
+		[Parameter(Mandatory)]
+		[string]$Msg
+	)
 	process {
-		$values = @{
-			CIMComputerSystem = $null
-			CIMBios = $null
-			CIMBaseBoard = $null
-		}
-		$message = $null
-
-		# VirtualBox
-		# VMware
-		# KVM
-		# Hyper-V
-		# QEMU
-		# Parallels
-		# Xen
-
-		# Microsoft Corporation
-		# Oracle
-		# VMware, Inc.
-		# Xen
-
-		try {
-			Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction Stop
-		} catch {
-			$values.CIMComputerSystem = "Unknown"
-		}
-
-		try {
-			Get-CimInstance -ClassName Win32_Bios -Property SerialNumber -ErrorAction Stop
-		}
-		catch {
-			$values.CIMBios = "Unknown"
-		}
-
-		try {
-			Get-CimInstance -ClassName Win32_BaseBoard -Property Product, Manufacturer -ErrorAction Stop
-		}
-		catch {
-			$values.CIMBaseBoard = "Unknown"
-		}
-
-		# Discrepancy Check
-		$consistencyReport = Test-Consistency -InputData $values
-
-		# Determine result
-		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -ne "Unknown") {
-			if ($consistencyReport.Result) {
-				$message = "`t[+] Virtual environment isolation detected"
-			} else {
-				$message = "`t[-] Virtual environment isolation absent"
+		# Default color
+		$defaultColor = "White"	
+		# Find pattern
+		$pattern = '\{\{(?<color>\w+):(?<text>.*?)\}\}' # {{Color:Text}}
+		$patternMatches = [regex]::Matches($Msg, $pattern)
+		# Iterate through the message
+		$lastIndex = 0
+		foreach ($m in $patternMatches) {
+			# Write text before match
+			if ($m.Index -gt $lastIndex) {
+				$plainText = $Msg.Substring($lastIndex, $m.Index - $lastIndex)
+				Write-Host $plainText -NoNewline -ForegroundColor $defaultColor
 			}
-		} else {
-			$message = "`t[?] $($consistencyReport.Result) virtual environment isolation state"
+			# Extract components
+			$color = $m.Groups["color"].Value
+			$txt = $m.Groups["text"].Value
+			# Validate color
+			if (-not [Enum]::GetNames([ConsoleColor]).Contains($color)) {
+				$color = $defaultColor
+			}
+			# Write message segment
+			Write-Host $txt -ForegroundColor $color -NoNewline
+			$lastIndex = $m.Index + $m.Length
 		}
-
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "VirtualEnvironment"
-			Consistency = $consistencyReport.Consistency
-			Uncertainty = $consistencyReport.Uncertainty
-			Values = $values
-			Result = $consistencyReport.Result
-			Message = $message
+		# Remaining text
+		if ($lastIndex -lt $Msg.Length) {
+			Write-Host $Msg.Substring($lastIndex) -NoNewline -ForegroundColor $defaultColor
 		}
+		# Final newline
+		Write-Host ""
 	}
 }
 
-<#
-	.SYNOPSIS
-		Checks if Secure Boot is enabled by querying multiple registry paths and CIM classes
-	.DESCRIPTION
-		The Test-SecureBoot function enumerates the Secure Boot status of a Windows host by cross-referencing three separate data sources: the Local Security Authority (LSA) registry key, the UEFI Secure Boot State registry key, and the Win32_Tpm CIM class
-		To ensure consistency, a verification is performed to detect any discrepancies from the three sources, returning a consolidated status object
-	.PARAMETER None
-		No parameters are required
-	.EXAMPLE
-		Test-SecureBoot
-	.INPUTS
-		No inputs accepted
-	.OUTPUTS
-		System.Management.Automation.PSCustomObject
-	.COMPONENT
-		SecurityState/SecureBoot
-	.LINK
-	.NOTES
-		Date: June 2026
-		Requires administrative privileges, otherwise registry and CIM queries will fail
-#>
-function Test-SecureBoot {
-	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param()
-	process {
-		$values = @{
-			RegKeyLSA = $null
-			RegKeyUEFI = $null
-			CIMClass = $null
-		}
-		$message = $null
-
-		# LSA Registry Key
-		try {
-			$regkey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction Stop
-			if ($null -ne $regkey.SecureBoot) {
-				$values.RegKeyLSA = [bool]$regkey.SecureBoot
-			} else {
-				throw "SecureBoot value not found in LSA registry key"
-			}
-		} catch {
-			$values.RegKeyLSA = "Unknown"
-		}
-
-		# UEFI Registry Key
-		try {
-			$regkey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop
-			$values.RegKeyUEFI = [bool]$regkey.UEFISecureBootEnabled
-		} catch {
-			$values.RegKeyUEFI = "Unknown"
-		}
-
-		# Common Information Model Class
-		try {
-			throw "Not implemented yet"
-			# $cimInstance = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop
-		} catch {
-			$values.CIMClass = "Unknown"
-		}
-
-		# Discrepancy Check
-		$consistencyReport = Test-Consistency -InputData $values
-
-		# Determine result
-		if ($consistencyReport.Consistency -eq 1 -and $consistencyReport.Result -is [bool]) {
-			if ($consistencyReport.Result) {
-				$message = "`t[+] Secure boot Enabled"
-			} else {
-				$message = "`t[-] Secure boot Disabled"
-			}
-		} else {
-			$message = "`t[?] $($consistencyReport.Result) Secure boot state"
-		}
-
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "SecureBoot"
-			Consistency = $consistencyReport.Consistency
-			Uncertainty = $consistencyReport.Uncertainty
-			Values = $values
-			Result = $consistencyReport.Result
-			Message = $message
-		}
+# ============================================================================
+# PLATFORM
+# ============================================================================
+Write-Color "{{Magenta:[*] Platform}}:"
+$CIMWin32 = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction Stop
+$CIMWinBIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion -ErrorAction Stop
+$CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber -ErrorAction Stop
+$CIMCPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,Architecture,Family,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction Stop
+$CIMGPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction Stop
+$CIMRAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed -ErrorAction Stop
+$CIMDisks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber -ErrorAction Stop
+$CIMDevices = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description -ErrorAction Stop
+# ======== Device name
+# Device Model and Manufacturer
+$device = "$($CIMWin32.Manufacturer) $($CIMWin32.Model) $($CIMWinBIOS.SerialNumber)"
+Write-Color "`t{{Cyan:[+] Device}}: $device"
+# ======== BIOS information
+$BIOSVersion = "$($CIMWinBIOS.Version) ($($CIMWinBIOS.SMBIOSBIOSVersion))"
+Write-Color "`t{{Cyan:[+] BIOS}}: $BIOSVersion"
+# ======== Motherboard
+$motherboard = "$($CIMWin32Board.Manufacturer) $($CIMWin32Board.Product) (SN: $($CIMWin32Board.SerialNumber))"
+Write-Color "`t{{Cyan:[+] Motherboard}}: $motherboard"
+# ======== CPU
+Write-Color "`t{{Cyan:[+] CPUs}} ($($CIMCPU.Count)):"
+foreach ($cpu in $CIMCPU) {
+	Write-Color "`t`t{{Cyan:[>]}} $($cpu.DeviceID): $($cpu.Name) ($($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors) $($cpu.ThreadCount)T) ($($cpu.Manufacturer) $($cpu.Architecture):$($cpu.Family))"
+}
+# ======== GPU
+Write-Color "`t{{Cyan:[+] GPUs}} ($($CIMGPU.Count)):"
+foreach ($gpu in $CIMGPU) {
+	Write-Color "`t`t{{Cyan:[>]}} $($gpu.DeviceID) ($($gpu.status)): $($gpu.Name) ($([math]::Round($gpu.AdapterRAM / 1GB, 2)) GB), $($gpu.AdapterCompatibility) driver $($gpu.DriverVersion), video $($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)x$($gpu.CurrentNumberOfColors) ($($gpu.CurrentRefreshRate)Hz $($gpu.CurrentBitsPerPixel)b)"
+}
+# ======== RAM
+Write-Color "`t{{Cyan:[+] RAM modules}} ($($CIMRAM.Count)):"
+foreach ($ram in $CIMRAM) {
+	$moduleType = switch ($ram.FormFactor) {
+		8 { "DIMM" }
+		12 { "SODIMM" }
+		Default { "Module Type $($ram.FormFactor)" }
 	}
+	$memoryType = switch ($ram.SMBIOSMemoryType) {
+		20 { "DDR" }
+		21 { "DDR2" }
+		24 { "DDR3" }
+		26 { "DDR4" }
+		34 { "DDR5" }
+		Default { "Memory Type $($ram.FormFactor)" }
+	}
+	Write-Color "`t`t{{Cyan:[>]}} $($ram.Manufacturer) $($ram.PartNumber) (SN: $($ram.SerialNumber)), $moduleType $memoryType $([math]::Round($ram.Capacity / 1GB, 1))GB $($ram.ConfiguredClockSpeed)/$($ram.Speed)MHz ($([math]::Round($ram.ConfiguredVoltage / 1000, 1))v)"
 }
+# ======== Storage Devices
+Write-Color "`t{{Cyan:[+] Storage devices}} ($($CIMDisks.Count)):"
+foreach ($disk in $CIMDisks) {
+	Write-Color "`t`t{{Cyan:[>]}} $($disk.Index): $($disk.InterfaceType) $($disk.MediaType) $($disk.Model) (SN: $($disk.SerialNumber)), $([math]::Round($disk.Size / 1GB, 1))GB $($disk.BytesPerSector)b sector ($($disk.Partitions) partitions), Firmware $($disk.FirmwareRevision)"
+}
+# ======== PNP Devices
+# PrintQueue
+# Network Adapters
 
-function Temp-SecurityState {
-	# LSA Protection
-	(Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa")
-	# Credentials Guard
-	# Av Information
-	# $cmd = if ($psv -ge 3) { 'Get-CimInstance' } else { 'Get-WmiObject' }
-	# $avList = & $cmd -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object { $_.displayName -notlike 'windows' } | Select-Object -ExpandProperty displayName
-	WMIC /Node:localhost /Namespace:\\root\SecurityCenter2 Path AntiVirusProduct Get displayName
-	(Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct).displayName
-	Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction SilentlyContinue
-}
+# === PNPClass
+# AudioEndpoint
+# Battery
+# Bluetooth
+# Camera
+# Computer
+# DiskDrive
+# Display
+# Firmware
+# HIDClass
+# Keyboard
+# MEDIA
+# Monitor
+# Mouse
+# Net
+# Ports
+# Printer
+# PrintQueue
+# Processor
+# SCSIAdapter
+# SecurityDevices
+# SmartCardFilter
+# SmartCardReader
+# SoftwareComponent
+# SoftwareDevice
+# System
+# USB
+# USBDevice
+# Volume
+
+# === PNPDeviceID
+
+
+# ============================================================================
+# SYSINFO
+# ============================================================================
+Write-Color "{{Magenta:[*] SysInfo}}:"
+$kernel = [System.Environment]::OSVersion.Platform
+$CIMWin32OS = Get-CimInstance Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction Stop
+$language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
+$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
+# ======== Windows Name
+$winName = "$($winNtVersion.Name ?? $winNtVersion.ProductName) $($winNtVersion.DisplayVersion) $($language)"
+Write-Color "`t{{Cyan:[+] Operating system}}: $winName"
+# ======== Windows Version
+$winVer = "$($kernel) $($CIMWin32OS.Version) $($CIMWin32OS.OSArchitecture)"
+Write-Color "`t{{Cyan:[+] OS version}}: $winVer"
+# ======== Owner
+$winOwner = "$($winNtVersion.RegisteredOwner) ($($winNtVersion.RegisteredOrganization))"
+Write-Color "`t{{Cyan:[+] Owner}}: $winOwner"
+# ======== Initialization Time
+Write-Color "`t{{Cyan:[+] Initialized}}: $($CIMWin32OS.LastBootUpTime)"
+# ======== Hotfixes
+# Non security updates
+$updates = (Get-HotFix | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
+Write-Color "`t{{Cyan:[+] Hotfixes}}: $updates"
+# Security updates
+$securityUpdates = (Get-HotFix | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
+Write-Color "`t{{Cyan:[+] Security hotfixes}}: $securityUpdates"
+
+# ============================================================================
+# SECURITY STATE
+# ============================================================================
+Write-Color "{{Magenta:[*] Security State}}:"
+$Lsa = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction Stop
+$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop).UEFISecureBootEnabled
+# ======== Virtual Environment
+# VirtualBox
+# VMware
+# KVM
+# Hyper-V
+# QEMU
+# Parallels
+# Xen
+
+# Microsoft Corporation
+# Oracle
+# VMware, Inc.
+# Xen
+
+# $CIMWin32 Model and Manufacturer
+# $CIMWinBIOS SerialNumber
+# $CIMWin32Board Manufacturer and Product
+
+# ======== Secure Boot
+# ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop
+Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}")
+# ======== LSA Protection
+# $Lsa
+# ======== Credentials Guard
+# ======== Av Information
+# $cmd = if ($psv -ge 3) { 'Get-CimInstance' } else { 'Get-WmiObject' }
+# $avList = & $cmd -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object { $_.displayName -notlike 'windows' } | Select-Object -ExpandProperty displayName
+# WMIC /Node:localhost /Namespace:\\root\SecurityCenter2 Path AntiVirusProduct Get displayName
+# (Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct).displayName
+# Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction SilentlyContinue
 
 
 # ============================================================================
 # NETWORK
 # ============================================================================
-<#
-	.SYNOPSIS
-	.DESCRIPTION
-	.PARAMETER None
-	.EXAMPLE
-	.INPUTS
-	.OUTPUTS
-		System.Management.Automation.PSCustomObject
-	.COMPONENT
-		Network/Hostname
-	.LINK
-	.NOTES
-		Date: June 2026
-#>
-function Get-Hostname {
-	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param()
-	process {
-		# Local Resolver
-		$hostname = [System.Net.Dns]::GetHostName()
-		# UTC Datetime
-		$time = [System.DateTime]::UtcNow.ToString("s")
-		$values = @{ Hostname = $hostname; Time = $time }
-		$result = "$($values.Hostname) - $($values.Time)"
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "Hostname"
-			Consistency = 1.0
-			Uncertainty = 0.0
-			Values = $values
-			Result = $result
-			Message = "`t[+] $result"
-		}
-
-		# Common Information Model Class
-		$CIMWin32 = Get-CimInstance Win32_OperatingSystem
-		# Kernel
-		$kernel = [System.Environment]::OSVersion.Platform
-		# Assign values
-		$values = @{ Kernel = $kernel; Version = $CIMWin32.Version; Architecture = $CIMWin32.OSArchitecture }
-		$result = "$($values.Kernel) $($values.Version) $($values.Architecture)"
-		# Return report object
-		return [PSCustomObject]@{
-			Component = "OSVersion"
-			Consistency = 1.0
-			Uncertainty = 0.0
-			Values = $values
-			Result = $result
-			Message = "`t[+] OS version: $result"
-		}
-	}
-}
-# Network shares
-# network ifaces and known hosts
-# seatbelt arp tables
-# current ipv4/ipv6 tcp listening ports and associated process
-# current ipv4/ipv6 udp listening ports and associated process
-# firewall rules
-# dns cache
+Write-Color "{{Magenta:[*] Network}}:"
+# ======== Hostname
+$hostname = [System.Net.Dns]::GetHostName()
+$time = [System.DateTime]::UtcNow.ToString("s")
+Write-Color "`t{{Cyan:[+]}} $($hostname) - $($time)"
+# ======== Interfaces 
+# ======== Seatbelt arp tables
+# ======== Shares
+# ======== Known hosts
+# ======== IPv4/IPv6 listening ports and associated process
+# TCP
+# UDP
+# ======== Firewall rules
+# ======== DNS cache
 
 # ============================================================================
 # IDENTITIES
 # ============================================================================
-function Temp-Identities {
-	$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-	# Logged in with Authentication Type
-	Write-Host "Logged in with $($identity.AuthenticationType)"
-	# hostname\username (SID)
-	Write-Host "$($identity.Name) ($($identity.User.Value))"
-	# Privileges
-	# Current groups (SID)
-
-	# hostname\username (SID) IsDisabled? IsAdmin?
-	# groups (SID)
-	# Last logon time
-}
+Write-Color "{{Magenta:[*] Identities}}:"
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+# ======== Current user
+Write-Color "`t{{Cyan:[+] Identity}}: $($identity.Name) ($($identity.User.Value))"
+# ======== Authentication type
+Write-Color "`t{{Cyan:[+] AuthN type}}: $($identity.AuthenticationType)"
+# ======== Privileges
+$isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
+# ======== Current groups (SID)
+# ======== Other users
+# hostname\username (SID) IsDisabled? IsAdmin?
+# groups (SID)
+# Last logon time
 
 # ============================================================================
 # DOMAIN
 # ============================================================================
+Write-Color "{{Magenta:[*] Domain}}:"
 # [System.DirectoryServices.ActiveDirectory.Domain]
 # $domain = try {[System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain() } catch { $null }
+# ======== Domain
+# name
 # time
+# ======== Domain Controllers
+# DC
+# kerberos / auth server
 
 # ============================================================================
 # RESOURCES
 # ============================================================================
+Write-Color "{{Magenta:[*] Resources}}:"
 # ====== Services (powersploit privesc get modifiable service)
 # running services with name,startmode,serviceaccount,permissions,pathname
 
@@ -455,6 +336,7 @@ function Temp-Identities {
 # ============================================================================
 # FILES
 # ============================================================================
+Write-Color "{{Magenta:[*] Files}}:"
 # Recieve a target dir, check permissions, list files based on a filetype list, regex match into the files and report back
 
 # ====== Useful Software and Related Files
@@ -465,164 +347,14 @@ function Temp-Identities {
 # web application
 # DBMS
 
-# ====== Files
+# if (-not (Test-Path $FilePath)) { throw }
+
+# ======== Interesting files
 # look for files in userdir
 # regex match of interesting findings
 # look for permission in interesing dirs
 
 # ============================================================================
-# UTILITIES
+# END
 # ============================================================================
-<#
-	.SYNOPSIS
-		Evaluates multiple data sources for homogeneous results and returns a consistency and uncertainty report
-	.DESCRIPTION
-		The Test-Consistency function analyzes a hashtable of state data. It logically isolates "Unknown" or null values from explicit values
-		It calculates an Uncertainty Index (ratio of unknown to total values) and a Consistency Index (ratio of the statistical mode to the known values)
-		If a single mode exists, it is returned as the consolidated result. Any discrepancies or unknown values are formatted into a message for review
-	.PARAMETER StateData
-		Specifies the hashtable containing the state information. The keys should be the name of the source, and the values should be its raw information
-	.EXAMPLE
-		$data = @{
-			"ApiEEndpoint"	= "Running"
-			"DbQuery"		= "Unknown"
-			"LocalLog"		= "Running"
-		}
-		Test-Consistency -StateData $data
-		# Consistency: 1.0
-		# Uncertainty: 0.333
-		# Message:
-		#	ApiEEndpoint: Running
-		#	DbQuery: Unknown
-		#	LocalLog: Running
-		# Result: Running
-	.INPUTS
-		System.Collections.Hashtable
-	.OUTPUTS
-		System.Management.Automation.PSCustomObject
-	.COMPONENT
-		Utilities/Consistency
-	.LINK
-	.NOTES
-		Date: June 2026
-		Strict Type Evaluation: This function performs strict variable types evaluation
-#>
-function Test-Consistency {
-	[CmdletBinding()]
-	[OutputType([System.Management.Automation.PSCustomObject])]
-	param (
-		[Parameter(Mandatory = $true)]
-		[hashtable]$InputData
-	)
-
-	process {
-		function Build-Message {
-			[CmdletBinding()]
-			[OutputType([string])]
-			param (
-				[System.Object[]]$Entries
-			)
-			process {
-				if (-not $VerboseOutput){
-					return $null
-				}
-				$msgBuilder = [System.Text.StringBuilder]::new()
-
-				foreach ($entry in ($Entries | Sort-Object Name)) {
-					[void]$msgBuilder.Append("`n`t`t$($entry.Name): $($entry.Value)")
-				}
-				return $msgBuilder.ToString()
-			}
-		}
-
-		[int]$totalCount = $InputData.Count
-
-		if ($totalCount -eq 0) {
-			return [PSCustomObject]@{
-				Consistency = 0.0
-				Uncertainty = 1.0
-				Message = "No data provided"
-				Result = "Unknown"
-			}
-		}
-
-		# Isolate known and unknown datasets using strict type checking
-		$entries = @($InputData.GetEnumerator())
-		[array]$unknowns = $entries | Where-Object { ($null -eq $_.Value) -or ($_.Value -is [string] -and ($_.Value -eq "Unknown" -or [string]::IsNullOrWhiteSpace($_.Value))) }
-		[array]$knowns = $entries | Where-Object { ($null -ne $_.Value) -and -not ($_.Value -is [string] -and ($_.Value -eq "Unknown" -or [string]::IsNullOrWhiteSpace($_.Value))) }
-
-		[int]$uCount = $unknowns.Count
-		[int]$kCount = $knowns.Count
-
-		[double]$uncertainty = [double]$uCount / $totalCount
-		[double]$consistency = 0.0
-		[string]$message = $null
-		$result = "Unknown"
-
-		if ($kCount -gt 0) {
-			# Group known values to determine statistical mode and consistency
-			$groupedKnowns = $knowns | Group-Object -Property Value | Sort-Object Count -Descending
-			[int]$mCount = $groupedKnowns[0].Count
-			$consistency = [double]$mCount / $kCount
-
-			$result = $groupedKnowns[0].Group[0].Value
-			# Redefine result in the presence of known discrepancies
-			if ($consistency -lt 1) {
-				$result = "Inconsistent"
-				$message = "$(Build-Message -Entries $entries)"
-			}
-		} else {
-			$message = "$(Build-Message -Entries $entries)"
-		}
-
-		return [PSCustomObject]@{
-			Consistency = [math]::Round($consistency, 3)
-			Uncertainty = [math]::Round($uncertainty, 3)
-			Message = $message
-			Result = $result
-		}
-	}
-}
-
-# ============================================================================
-# MAIN
-# ============================================================================
-$tests = [ordered]@{
-	Platform = @()
-	SysInfo = @(
-		{Get-OSName}
-		{Get-OSVersion}
-	)
-	SecurityState = @(
-		{Test-VirtualEnvironment}
-		{Test-SecureBoot}
-	)
-	Network = @(
-		{Get-Hostname}
-	)
-	Identities = @()
-	Domain = @()
-	Resources = @()
-	Files = @()
-}
-
-$stopwatch = [system.diagnostics.stopwatch]::StartNew()
-
-foreach ($section in $tests.GetEnumerator()) {
-	Write-Host "[*] $($section.Name) Enumeration ($($section.Value.Count))"
-	foreach ($test in $section.Value) {
-		try {
-			$result = Invoke-Command -ScriptBlock $test
-			if ($null -ne $result.Message) {
-				Write-Host $result.Message
-			} else {
-				Write-Host "`t[?] Component execution returned no message: $($test)"
-			}
-		}
-		catch {
-			Write-Host "`t[!] Error during component execution:`n`t`t$($test)`n`t`t$($_.Exception.Message)"
-		}
-	}
-}
-
-Write-Host "Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds"
+Write-Color "{{Green:[*]}} Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds"
