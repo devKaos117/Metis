@@ -215,7 +215,7 @@ foreach ($disk in $CIMDisks) {
 # ============================================================================
 Write-Color "{{Magenta:[*] SysInfo}}:"
 $kernel = [System.Environment]::OSVersion.Platform
-$CIMWin32OS = Get-CimInstance Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction Stop
+$CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction Stop
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
 $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
 # ======== Windows Name
@@ -242,37 +242,30 @@ Write-Color "`t{{Cyan:[+] Security hotfixes}}: $securityUpdates"
 # ============================================================================
 Write-Color "{{Magenta:[*] Security State}}:"
 $Lsa = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction Stop
-$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop).UEFISecureBootEnabled
+# $avList = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction Stop
+# Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction Stop
+# Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction Stop
 # ======== Virtual Environment
-# VirtualBox
-# VMware
-# KVM
-# Hyper-V
-# QEMU
-# Parallels
-# Xen
-
-# Microsoft Corporation
-# Oracle
-# VMware, Inc.
-# Xen
-
-# $CIMWin32 Model and Manufacturer
-# $CIMWinBIOS SerialNumber
-# $CIMWin32Board Manufacturer and Product
-
+# Pattern for virtual environment indicators
+$indicators = @( "VirtualBox", "innotek GmbH", "VBOX", "VMware", "KVM", "QEMU", "Bochs", "Parallels", "Xen", "Bhyve", "Virtual Machine" )
+$pattern = ($indicators | ForEach-Object { [regex]::Escape($_) }) -join '|'
+# Targeted properties
+$properties = @( $CIMWin32.Model, $CIMWin32.Manufacturer, $CIMWinBIOS.Version, $CIMWinBIOS.SerialNumber, $CIMWinBIOS.SMBIOSBIOSVersion, $CIMWin32Board.Manufacturer, $CIMWin32Board.Product, $CIMWin32Board.SerialNumber )
+# Iterate properties
+$isVirtual = $false
+foreach ($p in $properties) {
+	if ([string]::IsNullOrWhiteSpace($p)) { continue } # Ignore empty property
+	if ($p -match $pattern) { $isVirtual = $true } # Perform case insensitive match
+}
+Write-Color ($isVirtual ? "`t{{Cyan:[+] Virtual Environment}} {{Green:detected}}" : "`t{{Cyan:[+] Virtual Environment}} {{Red:absent}}")
 # ======== Secure Boot
 # ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop
+$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop).UEFISecureBootEnabled
 Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}")
 # ======== LSA Protection
 # $Lsa
 # ======== Credentials Guard
 # ======== Av Information
-# $cmd = if ($psv -ge 3) { 'Get-CimInstance' } else { 'Get-WmiObject' }
-# $avList = & $cmd -Namespace root\SecurityCenter2 -Class AntiVirusProduct | Where-Object { $_.displayName -notlike 'windows' } | Select-Object -ExpandProperty displayName
-# WMIC /Node:localhost /Namespace:\\root\SecurityCenter2 Path AntiVirusProduct Get displayName
-# (Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct).displayName
-# Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction SilentlyContinue
 
 
 # ============================================================================
