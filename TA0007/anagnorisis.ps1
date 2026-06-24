@@ -73,9 +73,9 @@ $stopwatch = [system.diagnostics.stopwatch]::StartNew()
 	.EXAMPLE
 	.INPUTS
 	.OUTPUTS
-		System.Management.Automation.PSCustomObject
+		System.Void
 	.COMPONENT
-		SecurityState/VirtualEnvironment
+		Utilities
 	.LINK
 	.NOTES
 		Date: June 2026
@@ -121,140 +121,267 @@ function Write-Color {
 	}
 }
 
+<#
+	.SYNOPSIS
+	.DESCRIPTION
+	.PARAMETER None
+	.EXAMPLE
+	.INPUTS
+	.OUTPUTS
+		System.Void
+	.COMPONENT
+		Utilities
+	.LINK
+	.NOTES
+		Date: June 2026
+#>
+function Invoke-SafeBlock {
+	param(
+		[Parameter(Mandatory)]
+		[string]$BlockName,
+
+		[Parameter(Mandatory)]
+		[array]$Arguments,
+
+		[Parameter(Mandatory)]
+		[scriptblock]$ScriptBlock
+	)
+	try {
+		& $ScriptBlock @Arguments
+	} catch {
+		Write-Color "`t{{Red:[!] Error}}: Failed during execution of $($BlockName): $_"
+	}
+}
+
 # ============================================================================
 # PLATFORM
 # ============================================================================
-Write-Color "{{Magenta:[*] Platform}}:"
-$CIMWin32 = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction Stop
-$CIMWinBIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion -ErrorAction Stop
-$CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber -ErrorAction Stop
-$CIMCPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,Architecture,Family,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction Stop
-$CIMGPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction Stop
-$CIMRAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed -ErrorAction Stop
-$CIMDisks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber -ErrorAction Stop
-$CIMDevices = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description -ErrorAction Stop
-# ======== Device name
-# Device Model and Manufacturer
-$device = "$($CIMWin32.Manufacturer) $($CIMWin32.Model) $($CIMWinBIOS.SerialNumber)"
-Write-Color "`t{{Cyan:[+] Device}}: $device"
-# ======== BIOS information
-$BIOSVersion = "$($CIMWinBIOS.Version) ($($CIMWinBIOS.SMBIOSBIOSVersion))"
-Write-Color "`t{{Cyan:[+] BIOS}}: $BIOSVersion"
-# ======== Motherboard
-$motherboard = "$($CIMWin32Board.Manufacturer) $($CIMWin32Board.Product) (SN: $($CIMWin32Board.SerialNumber))"
-Write-Color "`t{{Cyan:[+] Motherboard}}: $motherboard"
-# ======== CPU
-Write-Color "`t{{Cyan:[+] CPUs}} ($($CIMCPU.Count)):"
-foreach ($cpu in $CIMCPU) {
-	Write-Color "`t`t{{Cyan:[>]}} $($cpu.DeviceID): $($cpu.Name) ($($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors) $($cpu.ThreadCount)T) ($($cpu.Manufacturer) $($cpu.Architecture):$($cpu.Family))"
-}
-# ======== GPU
-Write-Color "`t{{Cyan:[+] GPUs}} ($($CIMGPU.Count)):"
-foreach ($gpu in $CIMGPU) {
-	Write-Color "`t`t{{Cyan:[>]}} $($gpu.DeviceID) ($($gpu.status)): $($gpu.Name) ($([math]::Round($gpu.AdapterRAM / 1GB, 2)) GB), $($gpu.AdapterCompatibility) driver $($gpu.DriverVersion), video $($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)x$($gpu.CurrentNumberOfColors) ($($gpu.CurrentRefreshRate)Hz $($gpu.CurrentBitsPerPixel)b)"
-}
-# ======== RAM
-Write-Color "`t{{Cyan:[+] RAM modules}} ($($CIMRAM.Count)):"
-foreach ($ram in $CIMRAM) {
-	$moduleType = switch ($ram.FormFactor) {
-		8 { "DIMM" }
-		12 { "SODIMM" }
-		Default { "Module Type $($ram.FormFactor)" }
+Write-Color "{{DarkBlue:[*] Platform}}:"
+$CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer
+$CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion
+$CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber
+$CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount
+$CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel
+$CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed
+$CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber
+$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description
+# ================ Device name
+Invoke-SafeBlock -BlockName "DeviceName" -Arguments @($CIMWin32CS, $CIMWin32BIOS) -ScriptBlock {
+	param ($CompSys, $BIOS)
+	process {
+		# Ensure needed variables
+		if (-not ($CompSys.Manufacturer -and $CompSys.Model -and $BIOS.SerialNumber)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($CompSys.Manufacturer) $($CompSys.Model) $($BIOS.SerialNumber)"
+		Write-Color "`t{{Cyan:[+] Device}}: $txt"
 	}
-	$memoryType = switch ($ram.SMBIOSMemoryType) {
-		20 { "DDR" }
-		21 { "DDR2" }
-		24 { "DDR3" }
-		26 { "DDR4" }
-		34 { "DDR5" }
-		Default { "Memory Type $($ram.FormFactor)" }
-	}
-	Write-Color "`t`t{{Cyan:[>]}} $($ram.Manufacturer) $($ram.PartNumber) (SN: $($ram.SerialNumber)), $moduleType $memoryType $([math]::Round($ram.Capacity / 1GB, 1))GB $($ram.ConfiguredClockSpeed)/$($ram.Speed)MHz ($([math]::Round($ram.ConfiguredVoltage / 1000, 1))v)"
 }
-# ======== Storage Devices
-Write-Color "`t{{Cyan:[+] Storage devices}} ($($CIMDisks.Count)):"
-foreach ($disk in $CIMDisks) {
-	Write-Color "`t`t{{Cyan:[>]}} $($disk.Index): $($disk.InterfaceType) $($disk.MediaType) $($disk.Model) (SN: $($disk.SerialNumber)), $([math]::Round($disk.Size / 1GB, 1))GB $($disk.BytesPerSector)b sector ($($disk.Partitions) partitions), Firmware $($disk.FirmwareRevision)"
+# ================ BIOS information
+Invoke-SafeBlock -BlockName "BIOS" -Arguments @($CIMWin32BIOS) -ScriptBlock {
+	param ($BIOS)
+	process {
+		# Ensure needed variables
+		if (-not ($BIOS.Version -and $BIOS.SMBIOSBIOSVersion)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($BIOS.Version) ($($BIOS.SMBIOSBIOSVersion))"
+		Write-Color "`t{{Cyan:[+] BIOS}}: $txt"
+	}
+}
+# ================ Motherboard
+Invoke-SafeBlock -BlockName "Motherboard" -Arguments @($CIMWin32Board) -ScriptBlock {
+	param($Motherboard)
+	process{
+		# Ensure needed variables
+		if (-not ($Motherboard.Manufacturer -and $Motherboard.Product -and $Motherboard.SerialNumber)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($Motherboard.Manufacturer) $($Motherboard.Product) (SN: $($Motherboard.SerialNumber))"
+		Write-Color "`t{{Cyan:[+] Motherboard}}: $txt"
+	}
+}
+# ================ CPU
+Invoke-SafeBlock -BlockName "CPU" -Arguments @($CIMWin32CPU) -ScriptBlock {
+	param($CPUs)
+	process{
+		if ($CPUs.Count -gt 0) {
+			Write-Color "`t{{Cyan:[+] CPUs}} ($($CPUs.Count)):"
+			foreach ($cpu in $CPUs) {
+				$txt = "`t`t{{Cyan:[>]}} $($cpu.DeviceID): $($cpu.Name)"
+				$txt += " ($($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors) $($cpu.ThreadCount)T)"
+				$txt +=  " ($($cpu.Manufacturer))"
+				Write-Color $txt
+			}
+		}
+	}
+}
+# ================ GPU
+Invoke-SafeBlock -BlockName "GPU" -Arguments @($CIMWin32GPU) -ScriptBlock {
+	param($GPUs)
+	process{
+		if ($GPUs.Count -gt 0) {
+			Write-Color "`t{{Cyan:[+] GPUs}} ($($GPUs.Count)):"
+			foreach ($gpu in $GPUs) {
+				$txt = "`t`t{{Cyan:[>]}} $($gpu.DeviceID) ($($gpu.status)):"
+				$txt += " $($gpu.Name) ($([math]::Round($gpu.AdapterRAM / 1GB, 2)) GB)"
+				$txt += "`n`t`t`tDriver: $($gpu.AdapterCompatibility) $($gpu.DriverVersion)"
+				$txt += "`n`t`t`tVideo: $($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)x$($gpu.CurrentNumberOfColors) ($($gpu.CurrentRefreshRate)Hz $($gpu.CurrentBitsPerPixel)b)"
+				Write-Color $txt
+			}
+		}
+	}
+}
+# ================ RAM
+Invoke-SafeBlock -BlockName "RAM" -Arguments @($CIMWin32RAM) -ScriptBlock {
+	param($RAMModules)
+	process{
+		if ($RAMModules.Count -gt 0) {
+			Write-Color "`t{{Cyan:[+] RAM modules}} ($($RAMModules.Count)):"
+			foreach ($ram in $RAMModules) {
+				$moduleType = switch ($ram.FormFactor) {
+					8 { "DIMM" }
+					12 { "SODIMM" }
+					Default { "Module Type $($ram.FormFactor)" }
+				}
+				$memoryType = switch ($ram.SMBIOSMemoryType) {
+					20 { "DDR" }
+					21 { "DDR2" }
+					24 { "DDR3" }
+					26 { "DDR4" }
+					34 { "DDR5" }
+					Default { "Memory Type $($ram.FormFactor)" }
+				}
+				$txt = "`t`t{{Cyan:[>]}} $($ram.Manufacturer) $($ram.PartNumber) (SN: $($ram.SerialNumber))"
+				$txt += "`n`t`t`t$moduleType $memoryType $([math]::Round($ram.Capacity / 1GB, 1))GB $($ram.ConfiguredClockSpeed)/$($ram.Speed)MHz ($([math]::Round($ram.ConfiguredVoltage / 1000, 1))v)"
+				Write-Color $txt
+			}
+		}
+	}
+}
+# ================ Storage Devices
+Invoke-SafeBlock -BlockName "StorageDevice" -Arguments @($CIMWin32Disks) -ScriptBlock {
+	param($Disks)
+	process{
+		if ($Disks.Count -gt 0) {
+			Write-Color "`t{{Cyan:[+] Storage devices}} ($($Disks.Count)):"
+			foreach ($disk in $Disks) {
+				$txt = "`t`t{{Cyan:[>]}} $($disk.Index): $($disk.InterfaceType) $($disk.MediaType) $($disk.Model) (SN: $($disk.SerialNumber))"
+				$txt += "`n`t`t`t$([math]::Round($disk.Size / 1GB, 1))GB $($disk.BytesPerSector)b sector ($($disk.Partitions) partitions)"
+				$txt += "`n`t`t`tFirmware $($disk.FirmwareRevision)"
+				Write-Color $txt
+			}
+		}
+	}
 }
 # ======== PNP Devices
+# ================ 
+Invoke-SafeBlock -BlockName "" -Arguments @() -ScriptBlock {
+	param()
+	process{
+	}
+}
 # PrintQueue
-# Network Adapters
 
 # === PNPClass
-# AudioEndpoint
-# Battery
 # Bluetooth
-# Camera
-# Computer
-# DiskDrive
-# Display
-# Firmware
-# HIDClass
-# Keyboard
-# MEDIA
-# Monitor
-# Mouse
-# Net
-# Ports
-# Printer
-# PrintQueue
-# Processor
 # SCSIAdapter
 # SecurityDevices
-# SmartCardFilter
 # SmartCardReader
-# SoftwareComponent
-# SoftwareDevice
 # System
 # USB
-# USBDevice
-# Volume
-
-# === PNPDeviceID
-
 
 # ============================================================================
 # SYSINFO
 # ============================================================================
-Write-Color "{{Magenta:[*] SysInfo}}:"
-$kernel = [System.Environment]::OSVersion.Platform
-$CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction Stop
+Write-Color "{{DarkBlue:[*] SysInfo}}:"
+$OSPlatform = [System.Environment]::OSVersion.Platform
+$CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
-$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction Stop
-# ======== Windows Name
-$winName = "$($winNtVersion.Name ?? $winNtVersion.ProductName) $($winNtVersion.DisplayVersion) $($language)"
-Write-Color "`t{{Cyan:[+] Operating system}}: $winName"
-# ======== Windows Version
-$winVer = "$($kernel) $($CIMWin32OS.Version) $($CIMWin32OS.OSArchitecture)"
-Write-Color "`t{{Cyan:[+] OS version}}: $winVer"
-# ======== Owner
-$winOwner = "$($winNtVersion.RegisteredOwner) ($($winNtVersion.RegisteredOrganization))"
-Write-Color "`t{{Cyan:[+] Owner}}: $winOwner"
-# ======== Initialization Time
-Write-Color "`t{{Cyan:[+] Initialized}}: $($CIMWin32OS.LastBootUpTime)"
-# ======== Hotfixes
-# (Get-Wmiobject -class Win32_QuickFixEngineering -namespace "root\cimv2" | select HotFixID, InstalledOn| ft -autosize | out-string )
-# Non security updates
-$updates = (Get-HotFix | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
-Write-Color "`t{{Cyan:[+] Hotfixes}}: $updates"
-# Security updates
-$securityUpdates = (Get-HotFix | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
-Write-Color "`t{{Cyan:[+] Security hotfixes}}: $securityUpdates"
+$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+# $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID
+$hotfixes = Get-HotFix
+# ================ Windows Name
+Invoke-SafeBlock -BlockName "WinName" -Arguments @($winNtVersion, $language) -ScriptBlock {
+	param($winVer, $lang)
+	process{
+		# Ensure needed variables
+		if (-not (($winVer.Name -or $winVer.ProductName) -and $winVer.DisplayVersion -and $lang)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($winVer.Name ?? $winVer.ProductName) $($winVer.DisplayVersion) $($lang)"
+		Write-Color "`t{{Cyan:[+] Operating system}}: $txt"
+	}
+}
+# ================ Windows Version
+Invoke-SafeBlock -BlockName "WinVer" -Arguments @($OSPlatform, $CIMWin32OS) -ScriptBlock {
+	param($Kernel, $OS)
+	process{
+		# Ensure needed variables
+		if (-not ($Kernel, $OS.Version, $OS.OSArchitecture)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($Kernel) $($OS.Version) $($OS.OSArchitecture)"
+		Write-Color "`t{{Cyan:[+] OS version}}: $txt"
+	}
+}
+# ================ Owner
+Invoke-SafeBlock -BlockName "WinOwner" -Arguments @($winNtVersion) -ScriptBlock {
+	param($winVer)
+	process{
+		# Ensure needed variables
+		if (-not ($winVer.RegisteredOwner -and $winVer.RegisteredOrganization)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "$($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
+		Write-Color "`t{{Cyan:[+] Owner}}: $txt"
+	}
+}
+# ================ Initialization Time
+Invoke-SafeBlock -BlockName "InitTime" -Arguments @($CIMWin32OS) -ScriptBlock {
+	param($OS)
+	process{
+		# Ensure needed variables
+		if (-not ($OS.LastBootUpTime)) {
+			throw "Failed to fetch data"
+		}
+		Write-Color "`t{{Cyan:[+] Initialized}}: $($OS.LastBootUpTime)"
+	}
+}
+# ================ Hotfixes
+Invoke-SafeBlock -BlockName "Hotfixes" -Arguments @($hotfixes) -ScriptBlock {
+	param($KBs)
+	process{
+		# Non security updates
+		$commonUpdates = ($KBs | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
+		if ($commonUpdates) {
+			Write-Color "`t{{Cyan:[+] Hotfixes}}: $commonUpdates"
+		} else {
+			Write-Color "`t{{Yellow:[+] Hotfixes}}: No KB found"
+		}
+		# Security updates
+		$securityUpdates = ($KBs | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
+		if ($securityUpdates) {
+			Write-Color "`t{{Cyan:[+] Security hotfixes}}: $securityUpdates"
+		} else {
+			Write-Color "`t{{Yellow:[+] Security hotfixes}}: No KB found"
+		}
+	}
+}
 
 # ============================================================================
 # SECURITY STATE
 # ============================================================================
-Write-Color "{{Magenta:[*] Security State}}:"
-$Lsa = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction Stop
-# $avList = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction Stop
-# Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction Stop
-# Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions' -ErrorAction Stop
+Write-Color "{{DarkBlue:[*] Security State}}:"
+$LSA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+# ADMIN Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions'
+$antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName
 # ======== Virtual Environment
 # Pattern for virtual environment indicators
 $indicators = @( "VirtualBox", "innotek GmbH", "VBOX", "VMware", "KVM", "QEMU", "Bochs", "Parallels", "Xen", "Bhyve", "Virtual Machine" )
 $pattern = ($indicators | ForEach-Object { [regex]::Escape($_) }) -join '|'
 # Targeted properties
-$properties = @( $CIMWin32.Model, $CIMWin32.Manufacturer, $CIMWinBIOS.Version, $CIMWinBIOS.SerialNumber, $CIMWinBIOS.SMBIOSBIOSVersion, $CIMWin32Board.Manufacturer, $CIMWin32Board.Product, $CIMWin32Board.SerialNumber )
+$properties = @( $CIMWin32CS.Model, $CIMWin32CS.Manufacturer, $CIMWin32BIOS.Version, $CIMWin32BIOS.SerialNumber, $CIMWin32BIOS.SMBIOSBIOSVersion, $CIMWin32Board.Manufacturer, $CIMWin32Board.Product, $CIMWin32Board.SerialNumber )
 # Iterate properties
 $isVirtual = $false
 foreach ($p in $properties) {
@@ -263,8 +390,8 @@ foreach ($p in $properties) {
 }
 Write-Color ($isVirtual ? "`t{{Cyan:[+] Virtual Environment}} {{Green:detected}}" : "`t{{Cyan:[+] Virtual Environment}} {{Red:absent}}")
 # ======== Secure Boot
-# ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop
-$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" -ErrorAction Stop).UEFISecureBootEnabled
+# ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm
+$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State").UEFISecureBootEnabled
 Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}")
 # ======== LSA Protection
 # $Lsa
@@ -275,12 +402,27 @@ Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{
 # ============================================================================
 # NETWORK
 # ============================================================================
-Write-Color "{{Magenta:[*] Network}}:"
-# ======== Hostname
+Write-Color "{{DarkBlue:[*] Network}}:"
 $hostname = [System.Net.Dns]::GetHostName()
-$time = [System.DateTime]::UtcNow.ToString("s")
-Write-Color "`t{{Cyan:[+]}} $($hostname) - $($time)"
+$time = { [System.DateTime]::UtcNow.ToString("s") }
+$NetIPConfig = Get-NetIPConfiguration -Detailed
+# ======== Hostname
+Write-Color "`t{{Cyan:[+] Hostname:}} $($hostname)"
+Write-Color "`t{{Cyan:[+] Time:}} $(& $time)"
 # ======== Interfaces 
+Write-Color "`t{{Cyan:[+] Network Interfaces:}}"
+foreach ($ipConfig in $NetIPConfig) {
+	$txt = "`t`t{{Cyan:[>]}} $($ipConfig.InterfaceAlias) ($($ipConfig.InterfaceDescription)):"
+	$txt += "`n`t`t`tMAC: $($ipConfig.NetAdapter.LinkLayerAddress) (MTU $($ipConfig.NetIPv4Interface.NlMTU))"
+	if ($ipConfig.IPv4Address.Count -gt 0) {
+		$txt += "`n`t`t`tIPv4: $($ipConfig.NetIPv4Interface.DHCP -eq "Enabled" ? "DHCP " : $null)$(($ipConfig.IPv4Address | ForEach-Object { "$($_.IPAddress)/$($_.PrefixLength)" }) -join ",")"
+	}
+	if ($ipConfig.DNSServer.ServerAddresses.Count -gt 0) {
+		$txt += "`n`t`t`tDNS Servers: $(($ipConfig.DNSServer.ServerAddresses -join ","))"
+	}
+	# Include IPv6
+	Write-Color "$txt"
+}
 # ======== Seatbelt arp tables
 # ======== Shares
 # ======== Known hosts
@@ -293,7 +435,7 @@ Write-Color "`t{{Cyan:[+]}} $($hostname) - $($time)"
 # ============================================================================
 # IDENTITIES
 # ============================================================================
-Write-Color "{{Magenta:[*] Identities}}:"
+Write-Color "{{DarkBlue:[*] Identities}}:"
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 # ======== Current user
 Write-Color "`t{{Cyan:[+] Identity}}: $($identity.Name) ($($identity.User.Value))"
@@ -310,7 +452,7 @@ $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
 # ============================================================================
 # DOMAIN
 # ============================================================================
-Write-Color "{{Magenta:[*] Domain}}:"
+Write-Color "{{DarkBlue:[*] Domain}}:"
 # [System.DirectoryServices.ActiveDirectory.Domain]
 # $domain = try {[System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain() } catch { $null }
 # ======== Domain
@@ -331,7 +473,7 @@ Write-Color "{{Magenta:[*] Domain}}:"
 # ============================================================================
 # RESOURCES
 # ============================================================================
-Write-Color "{{Magenta:[*] Resources}}:"
+Write-Color "{{DarkBlue:[*] Resources}}:"
 # ====== Services (powersploit privesc get modifiable service)
 # running services with name,startmode,serviceaccount,permissions,pathname
 
@@ -343,7 +485,7 @@ Write-Color "{{Magenta:[*] Resources}}:"
 # ============================================================================
 # FILES
 # ============================================================================
-Write-Color "{{Magenta:[*] Files}}:"
+Write-Color "{{DarkBlue:[*] Files}}:"
 # Recieve a target dir, check permissions, list files based on a filetype list, regex match into the files and report back
 # ====== Useful Software and Related Files
 # (get-wmiobject -Class win32_product | select Name, Version, Caption | ft -hidetableheaders -autosize| out-string -Width 4096)
