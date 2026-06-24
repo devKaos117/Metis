@@ -141,7 +141,7 @@ function Invoke-SafeBlock {
 		[string]$BlockName,
 
 		[Parameter(Mandatory)]
-		[array]$Arguments,
+		[hashtable]$Arguments,
 
 		[Parameter(Mandatory)]
 		[scriptblock]$ScriptBlock
@@ -166,7 +166,7 @@ $CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufac
 $CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber
 $CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description
 # ================ Device name
-Invoke-SafeBlock -BlockName "DeviceName" -Arguments @($CIMWin32CS, $CIMWin32BIOS) -ScriptBlock {
+Invoke-SafeBlock -BlockName "DeviceName" -ScriptBlock {
 	param ($CompSys, $BIOS)
 	process {
 		# Ensure needed variables
@@ -176,9 +176,9 @@ Invoke-SafeBlock -BlockName "DeviceName" -Arguments @($CIMWin32CS, $CIMWin32BIOS
 		$txt = "$($CompSys.Manufacturer) $($CompSys.Model) $($BIOS.SerialNumber)"
 		Write-Color "`t{{Cyan:[+] Device}}: $txt"
 	}
-}
+} -Arguments @{ CompSys = $CIMWin32CS; BIOS = $CIMWin32BIOS }
 # ================ BIOS information
-Invoke-SafeBlock -BlockName "BIOS" -Arguments @($CIMWin32BIOS) -ScriptBlock {
+Invoke-SafeBlock -BlockName "BIOS" -ScriptBlock {
 	param ($BIOS)
 	process {
 		# Ensure needed variables
@@ -188,9 +188,9 @@ Invoke-SafeBlock -BlockName "BIOS" -Arguments @($CIMWin32BIOS) -ScriptBlock {
 		$txt = "$($BIOS.Version) ($($BIOS.SMBIOSBIOSVersion))"
 		Write-Color "`t{{Cyan:[+] BIOS}}: $txt"
 	}
-}
+} -Arguments @{ BIOS = $CIMWin32BIOS }
 # ================ Motherboard
-Invoke-SafeBlock -BlockName "Motherboard" -Arguments @($CIMWin32Board) -ScriptBlock {
+Invoke-SafeBlock -BlockName "Motherboard" -ScriptBlock {
 	param($Motherboard)
 	process{
 		# Ensure needed variables
@@ -200,9 +200,9 @@ Invoke-SafeBlock -BlockName "Motherboard" -Arguments @($CIMWin32Board) -ScriptBl
 		$txt = "$($Motherboard.Manufacturer) $($Motherboard.Product) (SN: $($Motherboard.SerialNumber))"
 		Write-Color "`t{{Cyan:[+] Motherboard}}: $txt"
 	}
-}
+} -Arguments @{ Motherboard = $CIMWin32Board }
 # ================ CPU
-Invoke-SafeBlock -BlockName "CPU" -Arguments @($CIMWin32CPU) -ScriptBlock {
+Invoke-SafeBlock -BlockName "CPU" -ScriptBlock {
 	param($CPUs)
 	process{
 		if ($CPUs.Count -gt 0) {
@@ -215,9 +215,9 @@ Invoke-SafeBlock -BlockName "CPU" -Arguments @($CIMWin32CPU) -ScriptBlock {
 			}
 		}
 	}
-}
+} -Arguments @{ CPUs = $CIMWin32CPU }
 # ================ GPU
-Invoke-SafeBlock -BlockName "GPU" -Arguments @($CIMWin32GPU) -ScriptBlock {
+Invoke-SafeBlock -BlockName "GPU" -ScriptBlock {
 	param($GPUs)
 	process{
 		if ($GPUs.Count -gt 0) {
@@ -231,9 +231,9 @@ Invoke-SafeBlock -BlockName "GPU" -Arguments @($CIMWin32GPU) -ScriptBlock {
 			}
 		}
 	}
-}
+} -Arguments { GPUs = $CIMWin32GPU }
 # ================ RAM
-Invoke-SafeBlock -BlockName "RAM" -Arguments @($CIMWin32RAM) -ScriptBlock {
+Invoke-SafeBlock -BlockName "RAM" -ScriptBlock {
 	param($RAMModules)
 	process{
 		if ($RAMModules.Count -gt 0) {
@@ -258,9 +258,9 @@ Invoke-SafeBlock -BlockName "RAM" -Arguments @($CIMWin32RAM) -ScriptBlock {
 			}
 		}
 	}
-}
+} -Arguments { RAMModules = $CIMWin32RAM }
 # ================ Storage Devices
-Invoke-SafeBlock -BlockName "StorageDevice" -Arguments @($CIMWin32Disks) -ScriptBlock {
+Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 	param($Disks)
 	process{
 		if ($Disks.Count -gt 0) {
@@ -273,14 +273,14 @@ Invoke-SafeBlock -BlockName "StorageDevice" -Arguments @($CIMWin32Disks) -Script
 			}
 		}
 	}
-}
-# ======== PNP Devices
+} -Arguments { Disks = $CIMWin32Disks }
+# ======== PnP Devices
 # ================ 
-Invoke-SafeBlock -BlockName "" -Arguments @() -ScriptBlock {
+Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 	param()
 	process{
 	}
-}
+} -Arguments @{}
 # PrintQueue
 
 # === PNPClass
@@ -302,7 +302,7 @@ $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\Curr
 # $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID
 $hotfixes = Get-HotFix
 # ================ Windows Name
-Invoke-SafeBlock -BlockName "WinName" -Arguments @($winNtVersion, $language) -ScriptBlock {
+Invoke-SafeBlock -BlockName "WinName" -ScriptBlock {
 	param($winVer, $lang)
 	process{
 		# Ensure needed variables
@@ -312,21 +312,21 @@ Invoke-SafeBlock -BlockName "WinName" -Arguments @($winNtVersion, $language) -Sc
 		$txt = "$($winVer.Name ?? $winVer.ProductName) $($winVer.DisplayVersion) $($lang)"
 		Write-Color "`t{{Cyan:[+] Operating system}}: $txt"
 	}
-}
+} -Arguments @{ winVer = $winNtVersion; lang = $language }
 # ================ Windows Version
-Invoke-SafeBlock -BlockName "WinVer" -Arguments @($OSPlatform, $CIMWin32OS) -ScriptBlock {
+Invoke-SafeBlock -BlockName "WinVer" -ScriptBlock {
 	param($Kernel, $OS)
 	process{
 		# Ensure needed variables
-		if (-not ($Kernel, $OS.Version, $OS.OSArchitecture)) {
+		if (-not ($Kernel -and $OS.Version -and $OS.OSArchitecture)) {
 			throw "Failed to fetch data"
 		}
 		$txt = "$($Kernel) $($OS.Version) $($OS.OSArchitecture)"
 		Write-Color "`t{{Cyan:[+] OS version}}: $txt"
 	}
-}
+} -Arguments @{ Kernel = $OSPlatform; OS = $CIMWin32OS }
 # ================ Owner
-Invoke-SafeBlock -BlockName "WinOwner" -Arguments @($winNtVersion) -ScriptBlock {
+Invoke-SafeBlock -BlockName "WinOwner" -ScriptBlock {
 	param($winVer)
 	process{
 		# Ensure needed variables
@@ -336,9 +336,9 @@ Invoke-SafeBlock -BlockName "WinOwner" -Arguments @($winNtVersion) -ScriptBlock 
 		$txt = "$($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
 		Write-Color "`t{{Cyan:[+] Owner}}: $txt"
 	}
-}
+} -Arguments { winVer = $winNtVersion }
 # ================ Initialization Time
-Invoke-SafeBlock -BlockName "InitTime" -Arguments @($CIMWin32OS) -ScriptBlock {
+Invoke-SafeBlock -BlockName "InitTime" -ScriptBlock {
 	param($OS)
 	process{
 		# Ensure needed variables
@@ -347,9 +347,9 @@ Invoke-SafeBlock -BlockName "InitTime" -Arguments @($CIMWin32OS) -ScriptBlock {
 		}
 		Write-Color "`t{{Cyan:[+] Initialized}}: $($OS.LastBootUpTime)"
 	}
-}
+} -Arguments { OS = $CIMWin32OS }
 # ================ Hotfixes
-Invoke-SafeBlock -BlockName "Hotfixes" -Arguments @($hotfixes) -ScriptBlock {
+Invoke-SafeBlock -BlockName "Hotfixes" -ScriptBlock {
 	param($KBs)
 	process{
 		# Non security updates
@@ -367,7 +367,7 @@ Invoke-SafeBlock -BlockName "Hotfixes" -Arguments @($hotfixes) -ScriptBlock {
 			Write-Color "`t{{Yellow:[+] Security hotfixes}}: No KB found"
 		}
 	}
-}
+} -Arguments @{ KBs = $hotfixes }
 
 # ============================================================================
 # SECURITY STATE
