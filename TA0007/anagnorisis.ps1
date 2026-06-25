@@ -62,6 +62,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 # Measure execution timing
 $stopwatch = [system.diagnostics.stopwatch]::StartNew()
+# Notes:
+#	Get-ItemProperty -> [Microsoft.Win32.Registry]
+#	Get-CimInstance -> [System.Management.ManagementObjectSearcher]
 
 # ============================================================================
 # UTILITIES
@@ -157,14 +160,14 @@ function Invoke-SafeBlock {
 # PLATFORM
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Platform}}:"
-$CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer
-$CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion
-$CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber
-$CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount
-$CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel
-$CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed
-$CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber
-$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description
+$CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction SilentlyContinue
+$CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion -ErrorAction SilentlyContinue
+$CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber -ErrorAction SilentlyContinue
+$CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction SilentlyContinue
+$CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction SilentlyContinue
+$CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed -ErrorAction SilentlyContinue
+$CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber -ErrorAction SilentlyContinue
+$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description -ErrorAction SilentlyContinue
 # ================ Device name
 Invoke-SafeBlock -BlockName "DeviceName" -ScriptBlock {
 	param ($CompSys, $BIOS)
@@ -231,7 +234,7 @@ Invoke-SafeBlock -BlockName "GPU" -ScriptBlock {
 			}
 		}
 	}
-} -Arguments { GPUs = $CIMWin32GPU }
+} -Arguments @{ GPUs = $CIMWin32GPU }
 # ================ RAM
 Invoke-SafeBlock -BlockName "RAM" -ScriptBlock {
 	param($RAMModules)
@@ -258,7 +261,7 @@ Invoke-SafeBlock -BlockName "RAM" -ScriptBlock {
 			}
 		}
 	}
-} -Arguments { RAMModules = $CIMWin32RAM }
+} -Arguments @{ RAMModules = $CIMWin32RAM }
 # ================ Storage Devices
 Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 	param($Disks)
@@ -273,9 +276,8 @@ Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 			}
 		}
 	}
-} -Arguments { Disks = $CIMWin32Disks }
-# ======== PnP Devices
-# ================ 
+} -Arguments @{ Disks = $CIMWin32Disks }
+# ================ PnP Devices
 Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 	param()
 	process{
@@ -296,10 +298,10 @@ Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 # ============================================================================
 Write-Color "{{DarkBlue:[*] SysInfo}}:"
 $OSPlatform = [System.Environment]::OSVersion.Platform
-$CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime
+$CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction SilentlyContinue
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
-$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
-# $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID
+$winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue
+# $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue
 $hotfixes = Get-HotFix
 # ================ Windows Name
 Invoke-SafeBlock -BlockName "WinName" -ScriptBlock {
@@ -336,7 +338,7 @@ Invoke-SafeBlock -BlockName "WinOwner" -ScriptBlock {
 		$txt = "$($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
 		Write-Color "`t{{Cyan:[+] Owner}}: $txt"
 	}
-} -Arguments { winVer = $winNtVersion }
+} -Arguments @{ winVer = $winNtVersion }
 # ================ Initialization Time
 Invoke-SafeBlock -BlockName "InitTime" -ScriptBlock {
 	param($OS)
@@ -347,7 +349,7 @@ Invoke-SafeBlock -BlockName "InitTime" -ScriptBlock {
 		}
 		Write-Color "`t{{Cyan:[+] Initialized}}: $($OS.LastBootUpTime)"
 	}
-} -Arguments { OS = $CIMWin32OS }
+} -Arguments @{ OS = $CIMWin32OS }
 # ================ Hotfixes
 Invoke-SafeBlock -BlockName "Hotfixes" -ScriptBlock {
 	param($KBs)
@@ -373,26 +375,52 @@ Invoke-SafeBlock -BlockName "Hotfixes" -ScriptBlock {
 # SECURITY STATE
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Security State}}:"
-$LSA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
-# ADMIN Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions'
-$antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName
-# ======== Virtual Environment
-# Pattern for virtual environment indicators
-$indicators = @( "VirtualBox", "innotek GmbH", "VBOX", "VMware", "KVM", "QEMU", "Bochs", "Parallels", "Xen", "Bhyve", "Virtual Machine" )
-$pattern = ($indicators | ForEach-Object { [regex]::Escape($_) }) -join '|'
-# Targeted properties
-$properties = @( $CIMWin32CS.Model, $CIMWin32CS.Manufacturer, $CIMWin32BIOS.Version, $CIMWin32BIOS.SerialNumber, $CIMWin32BIOS.SMBIOSBIOSVersion, $CIMWin32Board.Manufacturer, $CIMWin32Board.Product, $CIMWin32Board.SerialNumber )
-# Iterate properties
-$isVirtual = $false
-foreach ($p in $properties) {
-	if ([string]::IsNullOrWhiteSpace($p)) { continue } # Ignore empty property
-	if ($p -match $pattern) { $isVirtual = $true } # Perform case insensitive match
-}
-Write-Color ($isVirtual ? "`t{{Cyan:[+] Virtual Environment}} {{Green:detected}}" : "`t{{Cyan:[+] Virtual Environment}} {{Red:absent}}")
-# ======== Secure Boot
 # ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm
-$secureBoot = [bool](Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State").UEFISecureBootEnabled
-Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}")
+$secureBoot = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecureBoot\State", "UEFISecureBootEnabled", $null)
+$LSA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction SilentlyContinue
+# ADMIN Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions'
+$antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction SilentlyContinue
+# ======== Virtual Environment
+Invoke-SafeBlock -BlockName "VirtEnv" -ScriptBlock {
+	param($CompSys, $BIOS, $Motherboard)
+	process{
+		# Targeted properties
+		$properties = @( $CompSys.Model, $CompSys.Manufacturer, $BIOS.Version, $BIOS.SerialNumber, $BIOS.SMBIOSBIOSVersion, $Motherboard.Manufacturer, $Motherboard.Product, $Motherboard.SerialNumber )
+		# Ensure needed variables
+		if ($null -in $properties -or $properties -contains '') {
+			throw "Failed to fetch data"
+		}
+		# Pattern for virtual environment indicators
+		$indicators = @( "VirtualBox", "innotek GmbH", "VBOX", "VMware", "KVM", "QEMU", "Bochs", "Parallels", "Xen", "Bhyve", "Virtual Machine" )
+		$pattern = ($indicators | ForEach-Object { [regex]::Escape($_) }) -join '|'
+		# Perform case insensitive match
+		$isVirtual = [bool]($properties -match $pattern)
+		# Build and outputs result
+		if ($isVirtual) {
+			$txt = "`t{{Cyan:[+] Virtual Environment}} {{Green:detected}}"
+		} else {
+			$txt = "`t{{Cyan:[+] Virtual Environment}} {{Red:absent}}"
+		}
+		Write-Color $txt
+	}
+} -Arguments @{CompSys = $CIMWin32CS; BIOS = $CIMWin32BIOS; Motherboard = $CIMWin32Board}
+# ======== Secure Boot
+Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
+	param($SecureBoot)
+	process{
+		# Ensure needed variables
+		if ($null -eq $secureBoot) {
+			throw "Failed to fetch data"
+		}
+		# Build and outputs result
+		if ($secureBoot) {
+			$txt = "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}"
+		} else {
+			$txt = "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}"
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ SecureBoot = $secureBoot }
 # ======== LSA Protection
 # $Lsa
 # ======== Credentials Guard
@@ -405,7 +433,7 @@ Write-Color ($secureBoot ? "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}" : "`t{
 Write-Color "{{DarkBlue:[*] Network}}:"
 $hostname = [System.Net.Dns]::GetHostName()
 $time = { [System.DateTime]::UtcNow.ToString("s") }
-$NetIPConfig = Get-NetIPConfiguration -Detailed
+$NetIPConfig = Get-NetIPConfiguration -Detailed -ErrorAction SilentlyContinue
 # ======== Hostname
 Write-Color "`t{{Cyan:[+] Hostname:}} $($hostname)"
 Write-Color "`t{{Cyan:[+] Time:}} $(& $time)"
@@ -560,3 +588,8 @@ Write-Color "{{DarkBlue:[*] Files}}:"
 # END
 # ============================================================================
 Write-Color "{{Green:[*]}} Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds"
+
+if ($Error.Count -gt 0) {
+	Write-Color "{{Red:[!] Error Stack}}: The execution throwed $($Error.Count) omitted errors:"
+	$Error | Select-Object -Property @{N='Error Message'; E={$_.Exception.Message}}, CategoryInfo, InvocationInfo | Format-Table -Wrap
+}
