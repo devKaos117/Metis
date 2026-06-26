@@ -161,7 +161,7 @@ function Invoke-SafeBlock {
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Platform}}:"
 $CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction SilentlyContinue
-$CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion -ErrorAction SilentlyContinue
+$CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion, SMBIOSMajorVersion, SMBIOSMinorVersion -ErrorAction SilentlyContinue
 $CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber -ErrorAction SilentlyContinue
 $CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction SilentlyContinue
 $CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction SilentlyContinue
@@ -176,8 +176,10 @@ Invoke-SafeBlock -BlockName "DeviceName" -ScriptBlock {
 		if (-not ($CompSys.Manufacturer -and $CompSys.Model -and $BIOS.SerialNumber)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($CompSys.Manufacturer) $($CompSys.Model) $($BIOS.SerialNumber)"
-		Write-Color "`t{{Cyan:[+] Device}}: $txt"
+
+		$txt = "`t{{Cyan:[+] Device}}:"
+		$txt += " $($CompSys.Manufacturer) $($CompSys.Model) $($BIOS.SerialNumber)"
+		Write-Color $txt
 	}
 } -Arguments @{ CompSys = $CIMWin32CS; BIOS = $CIMWin32BIOS }
 # ================ BIOS information
@@ -185,11 +187,14 @@ Invoke-SafeBlock -BlockName "BIOS" -ScriptBlock {
 	param ($BIOS)
 	process {
 		# Ensure needed variables
-		if (-not ($BIOS.Version -and $BIOS.SMBIOSBIOSVersion)) {
+		if (-not ($BIOS.Version -and $BIOS.SMBIOSBIOSVersion -and $BIOS.SMBIOSMajorVersion -and $BIOS.SMBIOSMinorVersion)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($BIOS.Version) ($($BIOS.SMBIOSBIOSVersion))"
-		Write-Color "`t{{Cyan:[+] BIOS}}: $txt"
+
+		$txt = "`t{{Cyan:[+] BIOS}}:"
+		$txt += " $($BIOS.Version) ($($BIOS.SMBIOSBIOSVersion))"
+		$txt += " (SMBIOS $($BIOS.SMBIOSMajorVersion).$($BIOS.SMBIOSMinorVersion))"
+		Write-Color $txt
 	}
 } -Arguments @{ BIOS = $CIMWin32BIOS }
 # ================ Motherboard
@@ -200,8 +205,10 @@ Invoke-SafeBlock -BlockName "Motherboard" -ScriptBlock {
 		if (-not ($Motherboard.Manufacturer -and $Motherboard.Product -and $Motherboard.SerialNumber)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($Motherboard.Manufacturer) $($Motherboard.Product) (SN: $($Motherboard.SerialNumber))"
-		Write-Color "`t{{Cyan:[+] Motherboard}}: $txt"
+
+		$txt = "`t{{Cyan:[+] Motherboard}}:"
+		$txt += " $($Motherboard.Manufacturer) $($Motherboard.Product) (SN: $($Motherboard.SerialNumber))"
+		Write-Color $txt
 	}
 } -Arguments @{ Motherboard = $CIMWin32Board }
 # ================ CPU
@@ -211,7 +218,8 @@ Invoke-SafeBlock -BlockName "CPU" -ScriptBlock {
 		if ($CPUs.Count -gt 0) {
 			Write-Color "`t{{Cyan:[+] CPUs}} ($($CPUs.Count)):"
 			foreach ($cpu in $CPUs) {
-				$txt = "`t`t{{Cyan:[>]}} $($cpu.DeviceID): $($cpu.Name)"
+				$txt = "`t`t{{Cyan:[>]}}"
+				$txt += " $($cpu.DeviceID): $($cpu.Name)"
 				$txt += " ($($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors) $($cpu.ThreadCount)T)"
 				$txt +=  " ($($cpu.Manufacturer))"
 				Write-Color $txt
@@ -226,7 +234,8 @@ Invoke-SafeBlock -BlockName "GPU" -ScriptBlock {
 		if ($GPUs.Count -gt 0) {
 			Write-Color "`t{{Cyan:[+] GPUs}} ($($GPUs.Count)):"
 			foreach ($gpu in $GPUs) {
-				$txt = "`t`t{{Cyan:[>]}} $($gpu.DeviceID) ($($gpu.status)):"
+				$txt = "`t`t{{Cyan:[>]}}"
+				$txt += " $($gpu.DeviceID) ($($gpu.status)):"
 				$txt += " $($gpu.Name) ($([math]::Round($gpu.AdapterRAM / 1GB, 2)) GB)"
 				$txt += "`n`t`t`tDriver: $($gpu.AdapterCompatibility) $($gpu.DriverVersion)"
 				$txt += "`n`t`t`tVideo: $($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)x$($gpu.CurrentNumberOfColors) ($($gpu.CurrentRefreshRate)Hz $($gpu.CurrentBitsPerPixel)b)"
@@ -255,7 +264,9 @@ Invoke-SafeBlock -BlockName "RAM" -ScriptBlock {
 					34 { "DDR5" }
 					Default { "Memory Type $($ram.FormFactor)" }
 				}
-				$txt = "`t`t{{Cyan:[>]}} $($ram.Manufacturer) $($ram.PartNumber) (SN: $($ram.SerialNumber))"
+
+				$txt = "`t`t{{Cyan:[>]}}"
+				$txt += " $($ram.Manufacturer) $($ram.PartNumber) (SN: $($ram.SerialNumber))"
 				$txt += "`n`t`t`t$moduleType $memoryType $([math]::Round($ram.Capacity / 1GB, 1))GB $($ram.ConfiguredClockSpeed)/$($ram.Speed)MHz ($([math]::Round($ram.ConfiguredVoltage / 1000, 1))v)"
 				Write-Color $txt
 			}
@@ -269,7 +280,8 @@ Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 		if ($Disks.Count -gt 0) {
 			Write-Color "`t{{Cyan:[+] Storage devices}} ($($Disks.Count)):"
 			foreach ($disk in $Disks) {
-				$txt = "`t`t{{Cyan:[>]}} $($disk.Index): $($disk.InterfaceType) $($disk.MediaType) $($disk.Model) (SN: $($disk.SerialNumber))"
+				$txt = "`t`t{{Cyan:[>]}}"
+				$txt += " $($disk.Index): $($disk.InterfaceType) $($disk.MediaType) $($disk.Model) (SN: $($disk.SerialNumber))"
 				$txt += "`n`t`t`t$([math]::Round($disk.Size / 1GB, 1))GB $($disk.BytesPerSector)b sector ($($disk.Partitions) partitions)"
 				$txt += "`n`t`t`tFirmware $($disk.FirmwareRevision)"
 				Write-Color $txt
@@ -302,6 +314,7 @@ $CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
 $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue
 # $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue
+# $hotfixes = ([wmisearcher]"SELECT HotFixID, Description, InstalledOn FROM Win32_QuickFixEngineering").Get()
 $hotfixes = Get-HotFix
 # ================ Windows Name
 Invoke-SafeBlock -BlockName "WinName" -ScriptBlock {
@@ -311,8 +324,15 @@ Invoke-SafeBlock -BlockName "WinName" -ScriptBlock {
 		if (-not (($winVer.Name -or $winVer.ProductName) -and $winVer.DisplayVersion -and $lang)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($winVer.Name ?? $winVer.ProductName) $($winVer.DisplayVersion) $($lang)"
-		Write-Color "`t{{Cyan:[+] Operating system}}: $txt"
+
+		$txt = "`t{{Cyan:[+] Operating system}}:"
+		if ($winVer.Name) {
+			$txt += " $($winVer.Name)"
+		} else {
+			$txt += " $($winVer.ProductName)"
+		}
+		$txt += " $($winVer.DisplayVersion) $($lang)"
+		Write-Color $txt
 	}
 } -Arguments @{ winVer = $winNtVersion; lang = $language }
 # ================ Windows Version
@@ -323,8 +343,10 @@ Invoke-SafeBlock -BlockName "WinVer" -ScriptBlock {
 		if (-not ($Kernel -and $OS.Version -and $OS.OSArchitecture)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($Kernel) $($OS.Version) $($OS.OSArchitecture)"
-		Write-Color "`t{{Cyan:[+] OS version}}: $txt"
+
+		$txt = "`t{{Cyan:[+] OS version}}:"
+		$txt += " $($Kernel) $($OS.Version) $($OS.OSArchitecture)"
+		Write-Color $txt
 	}
 } -Arguments @{ Kernel = $OSPlatform; OS = $CIMWin32OS }
 # ================ Owner
@@ -335,8 +357,10 @@ Invoke-SafeBlock -BlockName "WinOwner" -ScriptBlock {
 		if (-not ($winVer.RegisteredOwner -and $winVer.RegisteredOrganization)) {
 			throw "Failed to fetch data"
 		}
-		$txt = "$($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
-		Write-Color "`t{{Cyan:[+] Owner}}: $txt"
+
+		$txt = "`t{{Cyan:[+] Owner}}:"
+		$txt += " $($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
+		Write-Color $txt
 	}
 } -Arguments @{ winVer = $winNtVersion }
 # ================ Initialization Time
@@ -347,6 +371,7 @@ Invoke-SafeBlock -BlockName "InitTime" -ScriptBlock {
 		if (-not ($OS.LastBootUpTime)) {
 			throw "Failed to fetch data"
 		}
+
 		Write-Color "`t{{Cyan:[+] Initialized}}: $($OS.LastBootUpTime)"
 	}
 } -Arguments @{ OS = $CIMWin32OS }
@@ -354,19 +379,23 @@ Invoke-SafeBlock -BlockName "InitTime" -ScriptBlock {
 Invoke-SafeBlock -BlockName "Hotfixes" -ScriptBlock {
 	param($KBs)
 	process{
-		# Non security updates
 		$commonUpdates = ($KBs | Where-Object {$_.Description -notlike '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
 		if ($commonUpdates) {
 			Write-Color "`t{{Cyan:[+] Hotfixes}}: $commonUpdates"
 		} else {
-			Write-Color "`t{{Yellow:[+] Hotfixes}}: No KB found"
+			Write-Color "`t{{Yellow:[-] Hotfixes}}: No KB found"
 		}
-		# Security updates
+	}
+} -Arguments @{ KBs = $hotfixes }
+# ================ Security Hotfixes
+Invoke-SafeBlock -BlockName "SecurityHotfixes" -ScriptBlock {
+	param($KBs)
+	process{
 		$securityUpdates = ($KBs | Where-Object {$_.Description -like '*security*'} | Sort-Object -Descending -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue).HotFixID -join ","
 		if ($securityUpdates) {
 			Write-Color "`t{{Cyan:[+] Security hotfixes}}: $securityUpdates"
 		} else {
-			Write-Color "`t{{Yellow:[+] Security hotfixes}}: No KB found"
+			Write-Color "`t{{Yellow:[-] Security hotfixes}}: No KB found"
 		}
 	}
 } -Arguments @{ KBs = $hotfixes }
@@ -380,7 +409,7 @@ $secureBoot = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\Cu
 $LSA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction SilentlyContinue
 # ADMIN Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions'
 $antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction SilentlyContinue
-# ======== Virtual Environment
+# ================ Virtual Environment
 Invoke-SafeBlock -BlockName "VirtEnv" -ScriptBlock {
 	param($CompSys, $BIOS, $Motherboard)
 	process{
@@ -395,16 +424,16 @@ Invoke-SafeBlock -BlockName "VirtEnv" -ScriptBlock {
 		$pattern = ($indicators | ForEach-Object { [regex]::Escape($_) }) -join '|'
 		# Perform case insensitive match
 		$isVirtual = [bool]($properties -match $pattern)
-		# Build and outputs result
+
 		if ($isVirtual) {
-			$txt = "`t{{Cyan:[+] Virtual Environment}} {{Green:detected}}"
+			$txt = "`t{{Cyan:[+] Virtual Environment}} {{Yellow:detected}}"
 		} else {
-			$txt = "`t{{Cyan:[+] Virtual Environment}} {{Red:absent}}"
+			$txt = "`t{{Cyan:[-] Virtual Environment}} absent"
 		}
 		Write-Color $txt
 	}
 } -Arguments @{CompSys = $CIMWin32CS; BIOS = $CIMWin32BIOS; Motherboard = $CIMWin32Board}
-# ======== Secure Boot
+# ================ Secure Boot
 Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
 	param($SecureBoot)
 	process{
@@ -412,19 +441,19 @@ Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
 		if ($null -eq $secureBoot) {
 			throw "Failed to fetch data"
 		}
-		# Build and outputs result
+
 		if ($secureBoot) {
 			$txt = "`t{{Cyan:[+] Secure Boot}} {{Green:enabled}}"
 		} else {
-			$txt = "`t{{Cyan:[+] Secure Boot}} {{Red:disabled}}"
+			$txt = "`t{{Cyan:[-] Secure Boot}} {{Yellow:disabled}}"
 		}
 		Write-Color $txt
 	}
 } -Arguments @{ SecureBoot = $secureBoot }
-# ======== LSA Protection
+# ================ LSA Protection
 # $Lsa
-# ======== Credentials Guard
-# ======== Av Information
+# ================ Credentials Guard
+# ================ Av Information
 
 
 # ============================================================================
@@ -432,47 +461,95 @@ Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Network}}:"
 $hostname = [System.Net.Dns]::GetHostName()
-$time = { [System.DateTime]::UtcNow.ToString("s") }
-$NetIPConfig = Get-NetIPConfiguration -Detailed -ErrorAction SilentlyContinue
-# ======== Hostname
-Write-Color "`t{{Cyan:[+] Hostname:}} $($hostname)"
-Write-Color "`t{{Cyan:[+] Time:}} $(& $time)"
-# ======== Interfaces 
-Write-Color "`t{{Cyan:[+] Network Interfaces:}}"
-foreach ($ipConfig in $NetIPConfig) {
-	$txt = "`t`t{{Cyan:[>]}} $($ipConfig.InterfaceAlias) ($($ipConfig.InterfaceDescription)):"
-	$txt += "`n`t`t`tMAC: $($ipConfig.NetAdapter.LinkLayerAddress) (MTU $($ipConfig.NetIPv4Interface.NlMTU))"
-	if ($ipConfig.IPv4Address.Count -gt 0) {
-		$txt += "`n`t`t`tIPv4: $($ipConfig.NetIPv4Interface.DHCP -eq "Enabled" ? "DHCP " : $null)$(($ipConfig.IPv4Address | ForEach-Object { "$($_.IPAddress)/$($_.PrefixLength)" }) -join ",")"
+$getEpoch = { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+# $netInterfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
+$netInterfaces = Get-NetIPConfiguration -Detailed -ErrorAction SilentlyContinue
+# ================ Hostname
+Invoke-SafeBlock -BlockName "Hostname" -ScriptBlock {
+	param ($Hostname)
+	process {
+		if (-not ($Hostname)) {
+			throw "Failed to fetch data"
+		}
+
+		Write-Color "`t{{Cyan:[+] Hostname:}} $($Hostname)"
 	}
-	if ($ipConfig.DNSServer.ServerAddresses.Count -gt 0) {
-		$txt += "`n`t`t`tDNS Servers: $(($ipConfig.DNSServer.ServerAddresses -join ","))"
+} -Arguments @{ Hostname = $hostname }
+# ================ Time
+Invoke-SafeBlock -BlockName "Time" -ScriptBlock {
+	param ($Epoch)
+	process {
+		if (-not ($Epoch)) {
+			throw "Failed to fetch data"
+		}
+
+		$txt = "`t{{Cyan:[+] Time:}}"
+		$txt += " $([DateTimeOffset]::FromUnixTimeSeconds($Epoch).ToLocalTime().ToString("s")) ($Epoch)"
+		Write-Color $txt
 	}
-	# Include IPv6
-	Write-Color "$txt"
-}
-# ======== Seatbelt arp tables
-# ======== Shares
-# ======== Known hosts
-# ======== IPv4/IPv6 listening ports and associated process
+} -Arguments @{ Epoch = (& $getEpoch) }
+# ================ Interfaces
+Invoke-SafeBlock -BlockName "Interfaces" -ScriptBlock {
+	param($Interfaces)
+	process {
+		Write-Color "`t{{Cyan:[+] Network Interfaces:}}"
+		foreach ($interface in $Interfaces) {
+			$txt = "`t`t{{Cyan:[>]}}"
+			$txt += " $($interface.InterfaceAlias) ($($interface.InterfaceDescription)):"
+			$txt += "`n`t`t`tMAC: $($interface.NetAdapter.LinkLayerAddress) (MTU $($interface.NetIPv4Interface.NlMTU))"
+			if ($interface.IPv4Address.Count -gt 0) {
+				$txt += "`n`t`t`tIPv4: (DHCP $($interface.NetIPv4Interface.DHCP)) $(($interface.IPv4Address | ForEach-Object { "$($_.IPAddress)/$($_.PrefixLength)" }) -join ",")"
+			}
+			if ($interface.DNSServer.ServerAddresses.Count -gt 0) {
+				$txt += "`n`t`t`tDNS Servers: $(($interface.DNSServer.ServerAddresses -join ","))"
+			}
+			# Include IPv6
+			Write-Color $txt
+		}
+	}
+} -Arguments @{ Interfaces = $netInterfaces }
+# ================ Seatbelt arp tables
+# ================ Shares
+# ================ Known hosts
+# ================ IPv4/IPv6 listening ports and associated process
 # TCP
 # UDP
-# ======== Firewall rules
-# ======== DNS cache
+# ================ Firewall rules
+# ================ DNS cache
 
 # ============================================================================
 # IDENTITIES
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Identities}}:"
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-# ======== Current user
-Write-Color "`t{{Cyan:[+] Identity}}: $($identity.Name) ($($identity.User.Value))"
-# ======== Authentication type
-Write-Color "`t{{Cyan:[+] AuthN type}}: $($identity.AuthenticationType)"
-# ======== Privileges
+# ================ Current user
+Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
+	param ($Identity)
+	process {
+		if (-not ($Identity)) {
+			throw "Failed to fetch data"
+		}
+
+		Write-Color "`t{{Cyan:[+] Identity}}: $($Identity.Name) ($($Identity.User.Value))"
+	}
+} -Arguments @{ Identity = $identity }
+# ================ Authentication type
+Invoke-SafeBlock -BlockName "AuthenticationType" -ScriptBlock {
+	param ($Identity)
+	process {
+		if (-not ($Identity)) {
+			throw "Failed to fetch data"
+		}
+
+		Write-Color "`t{{Cyan:[+] AuthN type}}: $($Identity.AuthenticationType)"
+	}
+} -Arguments @{ Identity = $identity }
+# ================ Privileges
+# $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+# $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
-# ======== Current groups (SID)
-# ======== Other users
+# ================ Current groups (SID)
+# ================ Other users
 # hostname\username (SID) IsDisabled? IsAdmin?
 # groups (SID)
 # Last logon time
@@ -483,13 +560,22 @@ $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
 Write-Color "{{DarkBlue:[*] Domain}}:"
 # [System.DirectoryServices.ActiveDirectory.Domain]
 # $domain = try {[System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain() } catch { $null }
-# ======== Domain
+# ================ Domain
 # name
 # time
-# ======== Domain Controllers
-# DC
-# kerberos / auth server
-# ======== ADSI
+# ================ Domain Controllers
+# Global Catalog
+# kerberos / PDC owner
+# DCs
+# ================ Identities
+# Admin users and groups
+# adminCount attribute objects
+# ================ Resources
+# SYSVOL
+# GPOs
+# Services
+# Shared folders
+# ================ ADSI
 # $adsi = [ADSI]"WinNT://$env:COMPUTERNAME"
 # $adsi.Children | where {$_.SchemaClassName -eq 'user'} | Foreach-Object {
 # 	$groups = $_.Groups() | Foreach-Object {$_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)}
@@ -579,7 +665,7 @@ Write-Color "{{DarkBlue:[*] Files}}:"
 
 # if (-not (Test-Path $FilePath)) { throw }
 
-# ======== Interesting files
+# ================ Interesting files
 # look for files in userdir
 # regex match of interesting findings
 # look for permission in interesing dirs
