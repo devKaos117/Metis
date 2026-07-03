@@ -11,6 +11,9 @@
 # https://github.com/rbsec/sslscan
 # https://github.com/santoru/shcheck
 # https://github.com/OWASP/www-project-secure-headers
+# [System.Net.Sockets.TcpClient] and [System.Net.Security.SslStream]
+# [System.Net.Security.SslClientAuthenticationOptions]
+# [System.Net.Security.TlsCipherSuite]
 
 # ============================================================================
 # INITIALIZATIONS

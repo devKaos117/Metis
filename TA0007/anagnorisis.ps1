@@ -511,6 +511,10 @@ Invoke-SafeBlock -BlockName "Interfaces" -ScriptBlock {
 # ================ Seatbelt arp tables
 # ================ Shares
 # ================ Known hosts
+# ================ Proxy settings
+# [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings","AutoConfigURL",$null)
+# ================ Certificates
+# Get-ChildItem -Path Cert:\LocalMachine\Root | ? {$_.Subject -like "*Caixa*"} | % {Export-Certificate -Cert $_ -FilePath "$($Env:USERPROFILE)/Downloads/$($_.Subject -replace '[^a-zA-Z0-9]', '_').cer"}
 # ================ IPv4/IPv6 listening ports and associated process
 # TCP
 # UDP
