@@ -159,6 +159,7 @@ function Invoke-SafeBlock {
 # ============================================================================
 # PLATFORM
 # ============================================================================
+# https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/sample-powershell-script-to-query-smbios-locally
 Write-Color "{{DarkBlue:[*] Platform}}:"
 $CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction SilentlyContinue
 $CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion, SMBIOSMajorVersion, SMBIOSMinorVersion -ErrorAction SilentlyContinue
@@ -198,6 +199,7 @@ Invoke-SafeBlock -BlockName "BIOS" -ScriptBlock {
 	}
 } -Arguments @{ BIOS = $CIMWin32BIOS }
 # ================ Motherboard
+# MotherBoard UUID: (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
 Invoke-SafeBlock -BlockName "Motherboard" -ScriptBlock {
 	param($Motherboard)
 	process{
@@ -312,9 +314,8 @@ Write-Color "{{DarkBlue:[*] SysInfo}}:"
 $OSPlatform = [System.Environment]::OSVersion.Platform
 $CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction SilentlyContinue
 # Windows GDID (Global Device Identifier)
-# (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SQMClient").MachineId
-# (Get-ComputerInfo).OsDeviceID
-# (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
+# Telemetry identity: (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SQMClient").MachineId
+# Crypt identity: (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography").MachineGuid
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
 $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue
 # $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue
@@ -542,6 +543,7 @@ Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
 	}
 } -Arguments @{ Identity = $identity }
 # ================ Authentication type
+# Logon server
 Invoke-SafeBlock -BlockName "AuthenticationType" -ScriptBlock {
 	param ($Identity)
 	process {
