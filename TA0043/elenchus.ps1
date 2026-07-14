@@ -1,29 +1,54 @@
-# ============================================================================
-# INFO
-# ============================================================================
-# ============ Author
-# https://www.linkedin.com/in/kaos/
-# ============ Description
-# Elenchus
-# The philosophical art of cross-examination and refutation. SSL/TLS and HTTP security scanner designed to identify common misconfigurations in web applications
-# ============ Usage
-# ============ References
-# https://github.com/rbsec/sslscan
-# https://github.com/santoru/shcheck
-# https://github.com/OWASP/www-project-secure-headers
-# [System.Net.Sockets.TcpClient] and [System.Net.Security.SslStream]
-# [System.Net.Security.SslClientAuthenticationOptions]
-# [System.Net.Security.TlsCipherSuite]
-
+<#
+	.SYNOPSIS
+		Elenchus: The philosophical art of cross-examination and refutation. SSL/TLS and HTTP security scanner designed to identify common misconfigurations in web applications
+	.DESCRIPTION
+		...
+	.PARAMETER ...
+		...
+	.EXAMPLE
+		...
+	.INPUTS
+		...
+	.OUTPUTS
+		...
+	.COMPONENT
+		...
+	.LINK
+		...
+	.NOTES
+		Author: https://www.linkedin.com/in/kaos/
+		References:
+			https://github.com/rbsec/sslscan
+			https://github.com/santoru/shcheck
+			https://github.com/OWASP/www-project-secure-headers
+#>
 # ============================================================================
 # INITIALIZATIONS
 # ============================================================================
+[CmdletBinding()]
+[OutputType([System.Void])]
+param(
+	[ValidateSet("None", "Critical", "Error", "Warning", "Info", "Debug")]
+	[string] $LogLevel = "Info",
+
+	[ValidateRange(1, [int]::MaxValue)]
+	[int]$Rate = 10,
+
+	[ValidateRange(1, [int]::MaxValue)]
+	[int]$Period = 1,
+
+	[ValidateRange(1, [int]::MaxValue)]
+	[int]$Threads = 10
+)
+
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
 # LOGGER
 # ============================================================================
 # ============ Constants
+Set-Variable -Name TimestampFormat -Option Constant -Scope Script -Visibility Private -Value "HH:mm:ss.fff"
+
 Set-Variable -Name LOG_NONE -Option Constant -Scope Script -Visibility Private -Value 99
 Set-Variable -Name LOG_CRITICAL -Option Constant -Scope Script -Visibility Private -Value 50
 Set-Variable -Name LOG_ERROR -Option Constant -Scope Script -Visibility Private -Value 40
@@ -50,53 +75,7 @@ Set-Variable -Name LogColors -Option Constant -Scope Script -Visibility Private 
 	0 = "White"		# Custom
 }
 
-Set-Variable -Name TimestampFormat -Option Constant -Scope Script -Visibility Private -Value "HH:mm:ss.fff"
-Set-Variable -Name ColorizeMessage -Option Constant -Scope Script -Visibility Private -Value $true
-Set-Variable -Name CurrentLogLevel -Scope Script -Visibility Private -Value $LOG_INFO
-
-# ============ Traceback the calling stack
-function Get-CallerInfo {
-	[CmdletBinding()]
-	param()
-
-	# Get call stack
-	$callStack = Get-PSCallStack
-
-	# Skip internal logger functions
-	$callerFrame = $null
-	foreach ($frame in $callStack) {
-		if ($frame.Command -notlike "*Log*" -and
-			$frame.Command -ne "Get-CallerInfo" -and
-			$frame.Command -ne "<ScriptBlock>") {
-			$callerFrame = $frame
-			break
-		}
-	}
-
-	# Default values if we can"t find a caller
-	if (-not $callerFrame) {
-		$callerFrame = $callStack[-1]
-	}
-
-	# Get caller info
-	$processId = $PID
-
-	$fileName = if ($callerFrame.ScriptName) {
-		Split-Path -Leaf $callerFrame.ScriptName
-	} else {
-		"Interactive"
-	}
-
-	$functionName = if ($callerFrame.Command) {
-		$callerFrame.Command
-	} else {
-		"main"
-	}
-
-	return "${processId}:${fileName}:${functionName}"
-}
-
-# ============ Write the log to the host
+# ================ Write the log to the host
 function Write-LogMessage {
 	[CmdletBinding()]
 	param(
@@ -108,33 +87,20 @@ function Write-LogMessage {
 	)
 
 	# Check if we should log this level
-	if ($Level -lt $CurrentLogLevel) {
+	if ($Level -lt $LogLevel) {
 		return
 	}
 
 	# Gather metadata
 	$timestamp = Get-Date -Format $TimestampFormat
 	$levelName = $LogLevelNames[$Level]
-	$callerInfo = Get-CallerInfo
+	$callInfo = "$($PID):$([System.Threading.Thread]::CurrentThread.ManagedThreadId)"
 
-	# Format the message
-	if ($ColorizeMessage) {
-		# Build colored output
-		Write-Host "[" -NoNewline -ForegroundColor Gray
-		Write-Host $timestamp -NoNewline -ForegroundColor Cyan
-		Write-Host "] [" -NoNewline -ForegroundColor Gray
-		Write-Host $callerInfo -NoNewline -ForegroundColor Cyan
-		Write-Host "] [" -NoNewline -ForegroundColor Gray
-		Write-Host $levelName -NoNewline -ForegroundColor $LogColors[$Level]
-		Write-Host "] " -NoNewline -ForegroundColor Gray
-		Write-Host $Message -ForegroundColor White
-	} else {
-		# Plain text output
-		Write-Host "[$timestamp] [$callerInfo] [$levelName] $Message"
-	}
+	# Write message
+	Write-Color "[{{Cyan:$($timestamp)}}] [{{Cyan:$($callInfo)}}] [{{$($LogColors[$Level]):$($levelName)}}] $($Message)"
 }
 
-# ============ Logging API
+# ================ Logging API
 function Write-Log {
 	[CmdletBinding()]
 	param (
@@ -168,6 +134,90 @@ function Write-Log {
 		}
 	}
 }
+
+# ============================================================================
+# CONCURRENCY
+# ============================================================================
+$totalRequests = $Rate * $Period
+ 
+
+# 1. Initialize the global Semaphore and a Thread-Safe Collection for results
+$semaphore = [System.Threading.SemaphoreSlim]::new(0, $Rate)
+$results = [System.Collections.Concurrent.ConcurrentBag[psobject]]::new()
+
+# 2. Create and open the Runspace Pool
+# We add +1 to the concurrency limit to accommodate our background timer thread
+$runspacePool = [runspacefactory]::CreateRunspacePool(1, $Threads + 1)
+$runspacePool.Open()
+
+# 3. Start the Master Timer Thread
+$timerPS = [powershell]::Create().AddScript({
+	param($sem, $Rate)
+	while ($true) {
+		$needed = $Rate - $sem.CurrentCount
+		if ($needed -gt 0) { [void]$sem.Release($needed) }
+		Start-Sleep -Seconds 1
+	}
+}).AddArgument($semaphore).AddArgument($Rate)
+
+$timerPS.RunspacePool = $runspacePool
+$timerHandle = $timerPS.BeginInvoke() # Starts asynchronously
+
+# 4. Dispatch Worker Threads
+$tasks = [System.Collections.Generic.List[psobject]]::new()
+
+Write-Host "Dispatching $totalRequests workers into the pool..."
+foreach ($reqId in 1..$totalRequests) {
+	$workerPS = [powershell]::Create().AddScript({
+		param($id, $sem)
+		
+		# Block until a token is available
+		$sem.Wait()
+		
+		# --- WEB APPLICATION TEST LOGIC GOES HERE ---
+		# Example: Invoke-WebRequest -Uri "https://target..."
+		
+		# Return an object representing the result
+		[pscustomobject]@{
+			RequestID = $id
+			ThreadID  = [System.Threading.Thread]::CurrentThread.ManagedThreadId
+			Timestamp = Get-Date -Format $TimestampFormat
+		}
+	}).AddArgument($reqId).AddArgument($semaphore)
+	
+	$workerPS.RunspacePool = $runspacePool
+	
+	# Store the PS instance and its async handle so we can track it
+	$tasks.Add([pscustomobject]@{
+		PowerShellInstance = $workerPS
+		AsyncResult        = $workerPS.BeginInvoke()
+	})
+}
+
+# 5. Monitor and Collect Results
+Write-Host "Waiting for tasks to complete..."
+while ($tasks.AsyncResult.IsCompleted -contains $false) {
+	Start-Sleep -Milliseconds 100
+}
+
+foreach ($task in $tasks) {
+	# EndInvoke blocks until the specific thread finishes, then grabs the output stream
+	$output = $task.PowerShellInstance.EndInvoke($task.AsyncResult)
+	if ($output) { $results.Add($output) }
+	
+	# CRITICAL: Dispose of the individual PowerShell instance
+	$task.PowerShellInstance.Dispose()
+}
+
+# 6. Cleanup & Teardown
+$timerPS.Stop()       # Force kill the infinite timer loop
+$timerPS.Dispose()
+$runspacePool.Close()
+$runspacePool.Dispose()
+$semaphore.Dispose()
+
+# Display sorted results
+$results | Sort-Object RequestID | Format-Table -AutoSize
 
 # ============================================================================
 # PROXY
@@ -356,6 +406,7 @@ function Initialize-ProxyConnection {
 
 	return $proxyConfig
 }
+
 # ============================================================================
 # SSL/TLS
 # ============================================================================
@@ -505,33 +556,16 @@ $HEADER_RULES = @(
 # X-dtInjectedServlet
 # X-ruxit-JS-Agent
 
-# ============================================================================
-# HTTP COOKIES
-# ============================================================================
+try {
+	$ResponseHeaders = (Invoke-WebRequest -Uri $Target -Method GET -UseBasicParsing -ErrorAction Stop).Headers
 
-# ============================================================================
-# MAIN
-# ============================================================================
-<#
-	.SYNOPSIS
-		
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
+	# Log response headers and cookies on debug
+	Write-Log "Debug" "Fetched response headers:`n$( ($ResponseHeaders.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join "`n" )"
+}
+catch {
+	Write-Log "Error" "Failed during header audit: $($_.Exception.Message)"
+}
+
 function Invoke-HeaderAudit {
 	[CmdletBinding()]
     [OutputType([System.Collections.Generic.List[PSObject]])]
@@ -608,63 +642,6 @@ function Invoke-HeaderAudit {
 	}
 }
 
-<#
-	.SYNOPSIS
-		
-	.DESCRIPTION
-		...
-	.PARAMETER ...
-		...
-	.EXAMPLE
-		...
-	.INPUTS
-		...
-	.OUTPUTS
-		...
-	.COMPONENT
-		...
-	.LINK
-		...
-	.NOTES
-		...
-#>
-function Invoke-Elenchus {
-	[CmdletBinding()]
-    [OutputType([System.Void])]
-	param(
-		[Parameter(Mandatory, Position = 0)]
-		[string]$Target,
-
-		[Parameter()]
-		[switch]$DebugMode
-	)
-
-	process {
-		Write-Log "Info" "Starting Elenchus scan"
-
-		if ($DebugMode) {
-			$CurrentLogLevel = $LOG_DEBUG
-			Write-Log "Debug" "Debug mode enabled"
-		}
-
-		try {
-			# Check for proxy
-
-			# Perform request and log details on debug
-			$ResponseHeaders = (Invoke-WebRequest -Uri $Target -Method GET -UseBasicParsing -ErrorAction Stop).Headers
-
-			# Log response headers and cookies on debug
-			Write-Log "Debug" "Fetched response headers:`n$( ($ResponseHeaders.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join "`n" )"
-
-			# invoke audits
-			$HeaderAuditReport = Invoke-HeaderAudit -Headers $ResponseHeaders
-
-			Write-Log "Info" "Completed Elenchus scan"
-			# Write report
-			$HeaderAuditReport | Format-Table -AutoSize
-		} catch {
-			Write-Log "Critical" "Error during main execution: $($_.Exception.Message)"
-			exit 1
-		}
-	}
-}
+# ============================================================================
+# HTTP COOKIES
+# ============================================================================

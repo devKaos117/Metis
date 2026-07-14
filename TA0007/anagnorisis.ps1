@@ -22,6 +22,7 @@
 			https://book.hacktricks.wiki/en/windows-hardening/checklist-windows-privilege-escalation.html
 			https://github.com/411Hall/JAWS
 			https://github.com/GhostPack/Seatbelt
+			https://github.com/samratashok/nishang
 #>
 # ============================================================================
 # INITIALIZATIONS
