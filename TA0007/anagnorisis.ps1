@@ -93,7 +93,7 @@ function Write-Color {
 	)
 	process {
 		# Default color
-		$defaultColor = "White"	
+		$defaultColor = "White"
 		# Find pattern
 		$pattern = '\{\{(?<color>\w+):(?<text>.*?)\}\}' # {{Color:Text}}
 		$patternMatches = [regex]::Matches($Msg, $pattern)
@@ -165,7 +165,7 @@ Write-Color "{{DarkBlue:[*] Platform}}:"
 $CIMWin32CS = Get-CimInstance -ClassName Win32_ComputerSystem -Property Model, Manufacturer -ErrorAction SilentlyContinue
 $CIMWin32BIOS = Get-CimInstance -ClassName Win32_Bios -Property Version, SerialNumber, SMBIOSBIOSVersion, SMBIOSMajorVersion, SMBIOSMinorVersion -ErrorAction SilentlyContinue
 $CIMWin32Board = Get-CimInstance -ClassName Win32_BaseBoard -Property Manufacturer, Product, SerialNumber -ErrorAction SilentlyContinue
-$CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property  DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction SilentlyContinue
+$CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property DeviceID,Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,ThreadCount -ErrorAction SilentlyContinue
 $CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction SilentlyContinue
 $CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed -ErrorAction SilentlyContinue
 $CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber -ErrorAction SilentlyContinue
@@ -224,9 +224,11 @@ Invoke-SafeBlock -BlockName "CPU" -ScriptBlock {
 				$txt = "`t`t{{Cyan:[>]}}"
 				$txt += " $($cpu.DeviceID): $($cpu.Name)"
 				$txt += " ($($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors) $($cpu.ThreadCount)T)"
-				$txt +=  " ($($cpu.Manufacturer))"
+				$txt += " ($($cpu.Manufacturer))"
 				Write-Color $txt
 			}
+		} else {
+			Write-Color "`t{{Yellow:[-] CPUs}}: No CPUs identified"
 		}
 	}
 } -Arguments @{ CPUs = $CIMWin32CPU }
@@ -244,6 +246,8 @@ Invoke-SafeBlock -BlockName "GPU" -ScriptBlock {
 				$txt += "`n`t`t`tVideo: $($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)x$($gpu.CurrentNumberOfColors) ($($gpu.CurrentRefreshRate)Hz $($gpu.CurrentBitsPerPixel)b)"
 				Write-Color $txt
 			}
+		} else {
+			Write-Color "`t{{Yellow:[-] GPUs}}: No GPUs identified"
 		}
 	}
 } -Arguments @{ GPUs = $CIMWin32GPU }
@@ -273,6 +277,8 @@ Invoke-SafeBlock -BlockName "RAM" -ScriptBlock {
 				$txt += "`n`t`t`t$moduleType $memoryType $([math]::Round($ram.Capacity / 1GB, 1))GB $($ram.ConfiguredClockSpeed)/$($ram.Speed)MHz ($([math]::Round($ram.ConfiguredVoltage / 1000, 1))v)"
 				Write-Color $txt
 			}
+		} else {
+			Write-Color "`t{{Yellow:[-] RAM modules}}: No RAM modules identified"
 		}
 	}
 } -Arguments @{ RAMModules = $CIMWin32RAM }
@@ -289,24 +295,41 @@ Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 				$txt += "`n`t`t`tFirmware $($disk.FirmwareRevision)"
 				Write-Color $txt
 			}
+		} else {
+			Write-Color "`t{{Yellow:[-] Storage devices}}: No disks identified"
 		}
 	}
 } -Arguments @{ Disks = $CIMWin32Disks }
 # ================ PnP Devices
+$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Name,Status,PNPDeviceID,Manufacturer,PNPClass,Present,Service -ErrorAction SilentlyContinue
 Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
-	param()
+	param($Devices)
 	process{
+		if ($Devices.Count -gt 0) {
+			$classes = @(
+				"PrintQueue",			#
+				"SecurityDevices",		#
+				"SmartCardReader"		#
+			)
+			$orderedDevs = $Devices | Sort-Object -Property PNPClass | Where-Object { $_.PNPClass -in $classes }
+			if ($orderedDevs.Count -gt 0) {
+				Write-Color "`t{{Cyan:[+] PnP devices}} ($($orderedDevs.Count)):"
+				foreach ($dev in $orderedDevs) {
+					$txt = "`t`t{{Cyan:[>] $($dev.PNPClass)}}:"
+					$txt += " $($dev.Manufacturer) $($dev.Name)"
+					$txt += " ($($dev.Present ? "Present" : "Absent")) (Status: $($dev.Status))"
+					$txt += "`n`t`t`tID: $($dev.PNPDeviceID)"
+					$txt += "`n`t`t`tService: $($dev.Service)"
+					Write-Color $txt
+				}
+			} else {
+				Write-Color "`t{{Yellow:[-] PnP devices}}: No interesting device was found"
+			}
+		} else {
+			Write-Color "`t{{Yellow:[-] PnP devices}}: No device was found"
+		}
 	}
-} -Arguments @{}
-# PrintQueue
-
-# === PNPClass
-# Bluetooth
-# SCSIAdapter
-# SecurityDevices
-# SmartCardReader
-# System
-# USB
+} -Arguments @{ Devices = $CIMWin32PnP }
 
 # ============================================================================
 # SYSINFO
@@ -319,9 +342,7 @@ $CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version
 # Crypt identity: (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography").MachineGuid
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
 $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue
-# $hotfixes = Get-CimInstance -ClassName Win32_QuickFixEngineering -Property InstalledOn,HotFixID -ErrorAction SilentlyContinue
-# $hotfixes = ([wmisearcher]"SELECT HotFixID, Description, InstalledOn FROM Win32_QuickFixEngineering").Get()
-$hotfixes = Get-HotFix
+$hotfixes = ([wmisearcher]"SELECT HotFixID, Description, InstalledOn FROM Win32_QuickFixEngineering").Get()
 # ================ Windows Name
 Invoke-SafeBlock -BlockName "WinName" -ScriptBlock {
 	param($winVer, $lang)
@@ -405,6 +426,20 @@ Invoke-SafeBlock -BlockName "SecurityHotfixes" -ScriptBlock {
 		}
 	}
 } -Arguments @{ KBs = $hotfixes }
+# ================ Crypt
+$CryptGuid = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography", "MachineGuid", $null)
+Invoke-SafeBlock -BlockName "CryptGuid" -ScriptBlock {
+	param($Guid)
+	process{
+		# Ensure needed variables
+		if ($null -eq $Guid) {
+			throw "Failed to fetch data"
+		}
+
+		$txt = "`t{{Cyan:[+] Cryptographic GUID}}: $($Guid)"
+		Write-Color $txt
+	}
+} -Arguments @{ Guid = $CryptGuid }
 
 # ============================================================================
 # SECURITY STATE
@@ -457,9 +492,67 @@ Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
 	}
 } -Arguments @{ SecureBoot = $secureBoot }
 # ================ LSA Protection
-# $Lsa
+$LsaPpl = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "IsPplAutoEnabled", $null)
+$LsaPid = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "LsaPid", $null)
+Invoke-SafeBlock -BlockName "Lsa" -ScriptBlock {
+	param($LsaPpl, $LsaPid)
+	process{
+		# Ensure needed variables
+		if ($null -eq $LsaPpl -and $null -eq $LsaPid) {
+			throw "Failed to fetch data"
+		}
+
+		if ($LsaPpl) {
+			$txt = "`t{{Cyan:[+] LSA Protection}} {{Green:enabled}} (PID: $($LsaPid))"
+		} else {
+			$txt = "`t{{Cyan:[-] LSA Protection}} {{Yellow:disabled}}"
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ LsaPpl = $LsaPpl; LsaPid = $LsaPid }
 # ================ Credentials Guard
 # ================ Av Information
+# ================ Av Information
+# Windows Security Center COM API
+# implement wscAPI.WSCProductList in C#
+# DisplayName, ProductState, SignatureStatus, RemediationPath, IsActive, IsUpToDate, IsHealthy
+$antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName,productState -ErrorAction SilentlyContinue
+Invoke-SafeBlock -BlockName "AvInformation" -ScriptBlock {
+	param($Av)
+	process{
+		# Ensure needed variables
+		if ([String]::IsNullOrEmpty($Av.displayName) -or [String]::IsNullOrEmpty($Av.productState)) {
+			throw "Failed to fetch data"
+		}
+
+		# Convert state to hex
+		$hex = [Convert]::ToString($Av.productState, 16).PadLeft(6,'0')
+		# Substring(int startIndex, int length)
+		$WSC_SECURITY_PRODUCT_STATE = $hex.Substring(2,2)
+		$WSC_SECURITY_SIGNATURE_STATUS = $hex.Substring(4,2)
+
+		$RealTimeProtectionStatus = switch ($WSC_SECURITY_PRODUCT_STATE)
+		{
+			"00" {"Disabled"}
+			"01" {"Expired"}
+			"10" {"Enabled"}
+			"11" {"Snoozed"}
+			default {"Unknown"}
+		}
+
+		$DefinitionStatus = switch ($WSC_SECURITY_SIGNATURE_STATUS)
+		{
+			"00" {"Updated"}
+			"10" {"Outdated"}
+			default {"Unknown"}
+		}
+
+		$txt = "`t{{Cyan:[+] Antivirus}}:"
+		$txt += " $($Av.displayName)"
+		$txt += " ($($RealTimeProtectionStatus)) ($($DefinitionStatus))"
+		Write-Color $txt
+	}
+} -Arguments @{ Av = $antiVirus }
 
 
 # ============================================================================
@@ -519,13 +612,23 @@ Invoke-SafeBlock -BlockName "Interfaces" -ScriptBlock {
 # ================ Known hosts
 # ================ Proxy settings
 # [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings","AutoConfigURL",$null)
-# ================ Certificates
-# Get-ChildItem -Path Cert:\LocalMachine\Root | ? {$_.Subject -like "*Caixa*"} | % {Export-Certificate -Cert $_ -FilePath "$($Env:USERPROFILE)/Downloads/$($_.Subject -replace '[^a-zA-Z0-9]', '_').cer"}
 # ================ IPv4/IPv6 listening ports and associated process
 # TCP
 # UDP
 # ================ Firewall rules
 # ================ DNS cache
+
+# ============================================================================
+# BLUETOOTH
+# ============================================================================
+Write-Color "{{DarkBlue:[*] Bluetooth}}:"
+# ================
+
+# ============================================================================
+# USB
+# ============================================================================
+Write-Color "{{DarkBlue:[*] USB}}:"
+# ================
 
 # ============================================================================
 # IDENTITIES
@@ -564,6 +667,8 @@ $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
 # hostname\username (SID) IsDisabled? IsAdmin?
 # groups (SID)
 # Last logon time
+# ================ Certificates
+# Get-ChildItem -Path Cert:\LocalMachine\Root | ? {$_.Subject -like "*Caixa*"} | % {Export-Certificate -Cert $_ -FilePath "$($Env:USERPROFILE)/Downloads/$($_.Subject -replace '[^a-zA-Z0-9]', '_').cer"}
 
 # ============================================================================
 # DOMAIN
