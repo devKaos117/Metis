@@ -509,7 +509,6 @@ Invoke-SafeBlock -BlockName "Lsa" -ScriptBlock {
 } -Arguments @{ LsaPpl = $LsaPpl; LsaPid = $LsaPid }
 # ================ Credentials Guard
 # ================ Av Information
-# ================ Av Information
 # Windows Security Center COM API
 # implement wscAPI.WSCProductList in C#
 # DisplayName, ProductState, SignatureStatus, RemediationPath, IsActive, IsUpToDate, IsHealthy
