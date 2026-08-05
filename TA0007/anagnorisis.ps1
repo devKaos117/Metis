@@ -337,9 +337,6 @@ Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 Write-Color "{{DarkBlue:[*] SysInfo}}:"
 $OSPlatform = [System.Environment]::OSVersion.Platform
 $CIMWin32OS = Get-CimInstance -ClassName Win32_OperatingSystem -Property Version,OSArchitecture,LastBootUpTime -ErrorAction SilentlyContinue
-# Windows GDID (Global Device Identifier)
-# Telemetry identity: (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SQMClient").MachineId
-# Crypt identity: (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography").MachineGuid
 $language = [System.Globalization.CultureInfo]::InstalledUICulture.Name
 $winNtVersion = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -ErrorAction SilentlyContinue
 $hotfixes = ([wmisearcher]"SELECT HotFixID, Description, InstalledOn FROM Win32_QuickFixEngineering").Get()
