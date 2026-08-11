@@ -549,8 +549,6 @@ Invoke-SafeBlock -BlockName "AvInformation" -ScriptBlock {
 		Write-Color $txt
 	}
 } -Arguments @{ Av = $antiVirus }
-
-
 # ============================================================================
 # NETWORK
 # ============================================================================
@@ -559,6 +557,9 @@ $hostname = [System.Net.Dns]::GetHostName()
 $getEpoch = { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
 # $netInterfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
 $netInterfaces = Get-NetIPConfiguration -Detailed -ErrorAction SilentlyContinue
+$ARP = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetNeighbor -Property IPAddress
+$DNSCache = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_DNSClientCache -Property Data
+$proxy = [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings","AutoConfigURL",$null)
 # ================ Hostname
 Invoke-SafeBlock -BlockName "Hostname" -ScriptBlock {
 	param ($Hostname)
@@ -603,16 +604,181 @@ Invoke-SafeBlock -BlockName "Interfaces" -ScriptBlock {
 		}
 	}
 } -Arguments @{ Interfaces = $netInterfaces }
-# ================ Seatbelt arp tables
-# ================ Shares
 # ================ Known hosts
+Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
+	param($ARP, $DNS)
+	process {
+		if (-not $ARP -or -not $DNS) {
+			throw "Failed to fetch data"
+		}
+
+		function Normalize-IPAddress {
+			[OutputType([System.Net.IPAddress])]
+			param(
+				[Parameter(Mandatory)]
+				[object]$Address
+			)
+			process {
+				# Try to parse the address
+				$ip = $null
+				if (-not [System.Net.IPAddress]::TryParse([string]$Address, [ref]$ip)) {
+					return $null
+				}
+				$bytes = $ip.GetAddressBytes()
+				# Verify if it is a null host
+				$nullHost = $true
+				for ($i = 0; $i -lt $bytes.Length; $i++) {
+					if ($bytes[$i] -ne 0) {
+						$nullHost = $false
+						break
+					}
+				}
+				if ($nullHost) {
+					return $null
+				}
+				# Resolve map back to IPv4
+				if ($ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6 -and $ip.IsIPv4MappedToIPv6) {
+					return $ip.MapToIPv4()
+				}
+				# Return [System.Net.IPAddress]
+				return $ip
+			}
+		}
+
+		function Test-IPInSubnet {
+			param(
+				[Parameter(Mandatory)]
+				[System.Net.IPAddress]$IPAddress,
+
+				[Parameter(Mandatory)]
+				[string]$Subnet
+			)
+			process {
+				$parts = $Subnet.Split('/')
+				$network = Normalize-IPAddress -Address $parts[0]
+				$prefixLength = [int]$parts[1]
+
+				if ($ip.AddressFamily -ne $network.AddressFamily) {
+					return $false
+				}
+
+				$ipBytes = $ip.GetAddressBytes()
+				$networkBytes = $network.GetAddressBytes()
+				if ($prefixLength -lt 0 -or $prefixLength -gt ($ipBytes.Length * 8)) {
+					throw "Invalid prefix length $prefixLength for address family"
+				}
+
+				$fullBytes = [System.Math]::Floor($prefixLength / 8)
+				$remainingBits = $prefixLength % 8
+				for ($i = 0; $i -lt $fullBytes; $i++) {
+					if ($ipBytes[$i] -ne $networkBytes[$i]) {
+						return $false
+					}
+				}
+
+				if ($remainingBits -eq 0) {
+					return $true
+				}
+
+				$mask = [byte]((0xFF -shl (8 - $remainingBits)) -band 0xFF)
+				return (($ipBytes[$fullBytes] -band $mask) -eq ($networkBytes[$fullBytes] -band $mask))
+			}
+		}
+
+		$knownHosts = New-Object System.Collections.Generic.List[System.Net.IPAddress]
+		# Collecting entries from ARP table
+		foreach ($entry in $ARP) {
+			$ip = Normalize-IPAddress -Address $entry.IPAddress
+			if ($null -eq $ip) {
+				continue
+			}
+			if ($knownHosts.Contains($ip)) {
+				continue
+			}
+			$knownHosts.Add($ip)
+		}
+		# Collecting entries from DNS cache
+		foreach ($entry in $DNSCache) {
+			if ([System.String]::IsNullOrEmpty($entry.Data)) {
+				continue
+			}
+			$ip = Normalize-IPAddress -Address $entry.Data
+			if ($null -eq $ip) {
+				continue
+			}
+			if ($knownHosts.Contains($ip)) {
+				continue
+			}
+			$knownHosts.Add($ip)
+		}
+		$txt = "`t{{Cyan:[+] Known Hosts:}}"
+		$knownHosts = $knownHosts | Sort-Object -Property IPAddressToString
+		foreach ($ip in $knownHosts) {
+			# Pass on loopback addresses
+			if ([System.Net.IPAddress]::IsLoopback($ip)) {
+				continue
+			}
+
+			$bytes = $ip.GetAddressBytes()
+			if ($ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+				# Pass on IPv4 multicast: 224.0.0.0/4
+				if ($bytes[0] -ge 224 -and $bytes[0] -le 239) {
+					continue
+				}
+
+				$internalRanges = @(
+					'10.0.0.0/8',
+					'172.16.0.0/12',
+					'192.168.0.0/16',
+					'169.254.0.0/16', # LinkLocal
+					'100.64.0.0/10' # CGNAT
+				)
+			} elseif ($ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6) {
+				# Pass on IPv6 multicast: ff00::/8
+				if ($bytes[0] -eq 0xFF) {
+					continue
+				}
+
+				$internalRanges = @(
+					'fc00::/7',
+					'fe80::/10' # LinkLocal
+				)
+			} else {
+				continue
+			}
+			# Test if the address is in the internal subnets
+			foreach ($range in $internalRanges) {
+				if (Test-IPInSubnet -IPAddress $ip -Subnet $range) {
+					try {
+						$name = [System.Net.Dns]::GetHostEntry($ip).HostName
+						$txt += "`n`t`t{{Cyan:[>]}} $($ip) ($($name))"
+					}
+					catch {
+						$txt += "`n`t`t{{Cyan:[>]}} $($ip)"
+					}
+				}
+			}
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ ARP = $ARP; DNS = $DNSCache }
+# ================ Shares
 # ================ Proxy settings
-# [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings","AutoConfigURL",$null)
+Invoke-SafeBlock -BlockName "Proxy" -ScriptBlock {
+	param($Proxy)
+	process {
+		if ($Proxy) {
+			$txt = "`t{{Cyan:[+] Proxy:}} Proxy configured: $($Proxy)"
+		} else {
+			$txt = "`t{{Cyan:[-] Proxy:}} No proxy configuration detected"
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ Proxy = $proxy }
+# ================ Firewall rules
 # ================ IPv4/IPv6 listening ports and associated process
 # TCP
 # UDP
-# ================ Firewall rules
-# ================ DNS cache
 
 # ============================================================================
 # BLUETOOTH
@@ -630,34 +796,26 @@ Write-Color "{{DarkBlue:[*] USB}}:"
 # IDENTITIES
 # ============================================================================
 Write-Color "{{DarkBlue:[*] Identities}}:"
-$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
+# $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
+$isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 # ================ Current user
 Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
-	param ($Identity)
+	param ($Identity, $IsAdmin)
 	process {
 		if (-not ($Identity)) {
 			throw "Failed to fetch data"
 		}
-
-		Write-Color "`t{{Cyan:[+] Identity}}: $($Identity.Name) ($($Identity.User.Value))"
-	}
-} -Arguments @{ Identity = $identity }
-# ================ Authentication type
-# Logon server
-Invoke-SafeBlock -BlockName "AuthenticationType" -ScriptBlock {
-	param ($Identity)
-	process {
-		if (-not ($Identity)) {
-			throw "Failed to fetch data"
+		$txt = "`t{{Cyan:[+] Identity}}: $($Identity.Name) ($($Identity.AuthenticationType))"
+		if ($Identity.IsSystem) {
+			$txt += " {{Magenta:System}}"
+		} elseif ($IsAdmin) {
+			$txt += " {{DarkRed:Admin}}"
 		}
-
-		Write-Color "`t{{Cyan:[+] AuthN type}}: $($Identity.AuthenticationType)"
+		Write-Color $txt
 	}
-} -Arguments @{ Identity = $identity }
+} -Arguments @{ Identity = $principal.Identities; IsAdmin = $isAdmin }
 # ================ Privileges
-# $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
-# $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
-$isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
 # ================ Current groups (SID)
 # ================ Other users
 # hostname\username (SID) IsDisabled? IsAdmin?
@@ -786,8 +944,3 @@ Write-Color "{{DarkBlue:[*] Files}}:"
 # END
 # ============================================================================
 Write-Color "{{Green:[*]}} Done in $([Math]::Truncate($stopwatch.Elapsed.TotalSeconds)).$($stopwatch.Elapsed.Milliseconds) seconds"
-
-if ($Error.Count -gt 0) {
-	Write-Color "{{Red:[!] Error Stack}}: The execution throwed $($Error.Count) omitted errors:"
-	$Error | Select-Object -Property @{N='Error Message'; E={$_.Exception.Message}}, CategoryInfo, InvocationInfo | Format-Table -Wrap
-}
