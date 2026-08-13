@@ -390,7 +390,7 @@ Invoke-SafeBlock -BlockName "WinOwner" -ScriptBlock {
 	param($winVer)
 	process{
 		# Ensure needed variables
-		if (-not [System.String]::IsNullOrWhiteSpace($winVer.RegisteredOwner)) {
+		if ([System.String]::IsNullOrWhiteSpace($winVer.RegisteredOwner)) {
 			throw "Failed to fetch data"
 		}
 
