@@ -775,7 +775,7 @@ Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
 					throw "Invalid prefix length $prefixLength for address family"
 				}
 
-				$fullBytes = [System.Math]::Floor($prefixLength / 8)
+				$fullBytes = [int]([System.Math]::Floor($prefixLength / 8))
 				$remainingBits = $prefixLength % 8
 				for ($i = 0; $i -lt $fullBytes; $i++) {
 					if ($ipBytes[$i] -ne $networkBytes[$i]) {
@@ -819,7 +819,7 @@ Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
 			$knownHosts.Add($ip)
 		}
 		$txt = "`t{{Cyan:[+] Known Hosts:}}"
-		$knownHosts = $knownHosts | Sort-Object -Property IPAddressToString
+		$knownHosts = $knownHosts | Sort-Object -Property IPAddressToString # review type casting and sorting behavior
 		foreach ($ip in $knownHosts) {
 			# Pass on loopback addresses
 			if ([System.Net.IPAddress]::IsLoopback($ip)) {
@@ -857,7 +857,7 @@ Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
 			foreach ($range in $internalRanges) {
 				if (Test-IPInSubnet -IPAddress $ip -Subnet $range) {
 					try {
-						$name = [System.Net.Dns]::GetHostEntry($ip).HostName
+						$name = [System.Net.Dns]::GetHostEntry($ip).HostName # review string format and timeout behavior
 						$txt += "`n`t`t{{Cyan:[>]}} $($ip) ($($name))"
 					}
 					catch {
