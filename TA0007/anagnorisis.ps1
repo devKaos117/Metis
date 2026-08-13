@@ -108,14 +108,11 @@ function Write-Color {
 					[Console]::Write($Msg.Substring($lastIndex, $m.Index - $lastIndex))
 				}
 				# Extract components
-				$colorName = $m.Groups["color"].Value
+				$color = $m.Groups["color"].Value
 				$txt = $m.Groups["text"].Value
 				# Validate color
-				$color = $null
-				if ([Enum]::TryParse([ConsoleColor], $colorName, $true, [ref]$color)) {
-					[Console]::ForegroundColor = $color
-				} else {
-					[Console]::ForegroundColor = $defaultColor
+				if (-not [Enum]::GetNames([ConsoleColor]).Contains($color)) {
+					$color = $defaultColor
 				}
 				# Write message segment
 				[Console]::Write($txt)
