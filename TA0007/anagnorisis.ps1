@@ -111,7 +111,7 @@ function Write-Color {
 				$color = $m.Groups["color"].Value
 				$txt = $m.Groups["text"].Value
 				# Validate color
-				if (-not [Enum]::GetNames([ConsoleColor]).Contains($color)) {
+				if (-not ([Enum]::GetNames([ConsoleColor])).Contains($color)) {
 					$color = $defaultColor
 				}
 				# Write message segment
@@ -912,9 +912,9 @@ Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
 		}
 		$txt = "`t{{Cyan:[+] Identity}}: $($Identity.Name) ($($Identity.AuthenticationType))"
 		if ($Identity.IsSystem) {
-			$txt += " {{Magenta:System}}"
+			$txt += " ({{Magenta:System}})"
 		} elseif ($IsAdmin) {
-			$txt += " {{DarkRed:Admin}}"
+			$txt += " ({{DarkRed:Admin}})"
 		}
 		Write-Color $txt
 	}
