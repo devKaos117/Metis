@@ -115,6 +115,7 @@ function Write-Color {
 					$color = $defaultColor
 				}
 				# Write message segment
+				[Console]::ForegroundColor = $color
 				[Console]::Write($txt)
 				$lastIndex = $m.Index + $m.Length
 			}
@@ -389,12 +390,16 @@ Invoke-SafeBlock -BlockName "WinOwner" -ScriptBlock {
 	param($winVer)
 	process{
 		# Ensure needed variables
-		if (-not ($winVer.RegisteredOwner -and $winVer.RegisteredOrganization)) {
+		if (-not [System.String]::IsNullOrWhiteSpace($winVer.RegisteredOwner)) {
 			throw "Failed to fetch data"
 		}
 
-		$txt = "`t{{Cyan:[+] Owner}}:"
-		$txt += " $($winVer.RegisteredOwner) ($($winVer.RegisteredOrganization))"
+		$txt = "`t{{Cyan:[+] Owner}}: $($winVer.RegisteredOwner)"
+
+		if (-not [System.String]::IsNullOrWhiteSpace($winVer.RegisteredOrganization)) {
+			$txt += " ($($winVer.RegisteredOrganization))"
+		}
+
 		Write-Color $txt
 	}
 } -Arguments @{ winVer = $winNtVersion }
@@ -455,7 +460,7 @@ Invoke-SafeBlock -BlockName "CryptGuid" -ScriptBlock {
 Write-Color "{{DarkBlue:[*] Security State}}:"
 # ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm
 $secureBoot = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecureBoot\State", "UEFISecureBootEnabled", $null)
-$LsaPpl = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "IsPplAutoEnabled", $null)
+$LsaPpl = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "IsPplAutoEnabled", $null) # Review method, it is not reliable
 $LsaPid = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "LsaPid", $null)
 $devGuard = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -Property SecurityServicesConfigured,SecurityServicesRunning,VirtualizationBasedSecurityStatus
 $lsaIsoProcess = [System.Diagnostics.Process]::GetProcessesByName("LsaIso")
