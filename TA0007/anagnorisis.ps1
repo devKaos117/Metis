@@ -92,36 +92,45 @@ function Write-Color {
 		[string]$Msg
 	)
 	process {
-		# Default color
-		$defaultColor = "White"
+		# Original and default color
+		$originalColor = [Console]::ForegroundColor
+		$defaultColor = [ConsoleColor]::White
 		# Find pattern
 		$pattern = '\{\{(?<color>\w+):(?<text>.*?)\}\}' # {{Color:Text}}
 		$patternMatches = [regex]::Matches($Msg, $pattern)
 		# Iterate through the message
 		$lastIndex = 0
-		foreach ($m in $patternMatches) {
-			# Write text before match
-			if ($m.Index -gt $lastIndex) {
-				$plainText = $Msg.Substring($lastIndex, $m.Index - $lastIndex)
-				Write-Host $plainText -NoNewline -ForegroundColor $defaultColor
+		try {
+			foreach ($m in $patternMatches) {
+				# Write text before match
+				if ($m.Index -gt $lastIndex) {
+					[Console]::ForegroundColor = $defaultColor
+					[Console]::Write($Msg.Substring($lastIndex, $m.Index - $lastIndex))
+				}
+				# Extract components
+				$colorName = $m.Groups["color"].Value
+				$txt = $m.Groups["text"].Value
+				# Validate color
+				$color = $null
+				if ([Enum]::TryParse([ConsoleColor], $colorName, $true, [ref]$color)) {
+					[Console]::ForegroundColor = $color
+				} else {
+					[Console]::ForegroundColor = $defaultColor
+				}
+				# Write message segment
+				[Console]::Write($txt)
+				$lastIndex = $m.Index + $m.Length
 			}
-			# Extract components
-			$color = $m.Groups["color"].Value
-			$txt = $m.Groups["text"].Value
-			# Validate color
-			if (-not [Enum]::GetNames([ConsoleColor]).Contains($color)) {
-				$color = $defaultColor
+			# Remaining text
+			if ($lastIndex -lt $Msg.Length) {
+				[Console]::ForegroundColor = $defaultColor
+				[Console]::Write($Msg.Substring($lastIndex))
 			}
-			# Write message segment
-			Write-Host $txt -ForegroundColor $color -NoNewline
-			$lastIndex = $m.Index + $m.Length
+			[Console]::WriteLine()
 		}
-		# Remaining text
-		if ($lastIndex -lt $Msg.Length) {
-			Write-Host $Msg.Substring($lastIndex) -NoNewline -ForegroundColor $defaultColor
+		finally {
+			[Console]::ForegroundColor = $originalColor
 		}
-		# Final newline
-		Write-Host ""
 	}
 }
 
@@ -317,7 +326,12 @@ Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 				foreach ($dev in $orderedDevs) {
 					$txt = "`t`t{{Cyan:[>] $($dev.PNPClass)}}:"
 					$txt += " $($dev.Manufacturer) $($dev.Name)"
-					$txt += " ($($dev.Present ? "Present" : "Absent")) (Status: $($dev.Status))"
+					if ($dev.Present) {
+						$txt += " (Present)"
+					} else {
+						$txt += " (Absent)"
+					}
+					$txt += " (Status: $($dev.Status))"
 					$txt += "`n`t`t`tID: $($dev.PNPDeviceID)"
 					$txt += "`n`t`t`tService: $($dev.Service)"
 					Write-Color $txt
@@ -444,7 +458,10 @@ Invoke-SafeBlock -BlockName "CryptGuid" -ScriptBlock {
 Write-Color "{{DarkBlue:[*] Security State}}:"
 # ADMIN $CIMWin32TPM = Get-CimInstance -Namespace "root\CIMv2\Security\MicrosoftTpm" -ClassName Win32_Tpm
 $secureBoot = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecureBoot\State", "UEFISecureBootEnabled", $null)
-$LSA = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -ErrorAction SilentlyContinue
+$LsaPpl = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "IsPplAutoEnabled", $null)
+$LsaPid = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "LsaPid", $null)
+$devGuard = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -Property SecurityServicesConfigured,SecurityServicesRunning,VirtualizationBasedSecurityStatus
+$lsaIsoProcess = [System.Diagnostics.Process]::GetProcessesByName("LsaIso")
 # ADMIN Get-ChildItem 'registry::HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions'
 $antiVirus = Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -Property displayName -ErrorAction SilentlyContinue
 # ================ Virtual Environment
@@ -489,25 +506,87 @@ Invoke-SafeBlock -BlockName "SecureBoot" -ScriptBlock {
 	}
 } -Arguments @{ SecureBoot = $secureBoot }
 # ================ LSA Protection
-$LsaPpl = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "IsPplAutoEnabled", $null)
-$LsaPid = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "LsaPid", $null)
 Invoke-SafeBlock -BlockName "Lsa" -ScriptBlock {
 	param($LsaPpl, $LsaPid)
 	process{
 		# Ensure needed variables
-		if ($null -eq $LsaPpl -and $null -eq $LsaPid) {
+		if ($null -eq $LsaPpl) {
 			throw "Failed to fetch data"
 		}
 
 		if ($LsaPpl) {
-			$txt = "`t{{Cyan:[+] LSA Protection}} {{Green:enabled}} (PID: $($LsaPid))"
+			$txt = "`t{{Cyan:[+] LSA Protection}}: {{Green:enabled}}"
 		} else {
-			$txt = "`t{{Cyan:[-] LSA Protection}} {{Yellow:disabled}}"
+			$txt = "`t{{Cyan:[-] LSA Protection}}: {{Yellow:disabled}}"
+		}
+
+		if ($LsaPid -is [int] -and $LsaPid -gt 0) {
+			$txt += " (PID: $($LsaPid))"
 		}
 		Write-Color $txt
 	}
 } -Arguments @{ LsaPpl = $LsaPpl; LsaPid = $LsaPid }
-# ================ Credentials Guard
+# ================ VBS
+Invoke-SafeBlock -BlockName "VBS" -ScriptBlock {
+	param($VBSStatus)
+	process {
+		# Ensure needed variables
+		if ($null -eq $VBSStatus) {
+			throw "Failed to fetch data"
+		}
+
+		switch ([int]$VBSStatus) {
+			0 { $txt += "`t{{Cyan:[-] VBS}}: {{Red:disabled}}" }
+			1 { $txt += "`t{{Cyan:[-] VBS}}: {{Green:enabled}} but {{Red:inactive}}" }
+			2 { $txt += "`t{{Cyan:[+] VBS}}: {{Green:enabled}} and {{Green:running}}" }
+			Default { $txt += "`t{{Cyan:[+] VBS}}: {{Yellow:unknown}}" }
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ VBSStatus = $devGuard.VirtualizationBasedSecurityStatus }
+# ================ Credential Guard
+Invoke-SafeBlock -BlockName "CredentialGuard" -ScriptBlock {
+	param($CredGuard, $LsaIsoPID)
+	process {
+		# Ensure needed variables
+		if ($null -eq $CredGuard) {
+			throw "Failed to fetch data"
+		}
+
+		switch ($CredGuard) {
+			0 { $txt = "`t{{Cyan:[-] Credential Guard}}: {{Red:not configured}}" }
+			1 { $txt = "`t{{Cyan:[+] Credential Guard}}: {{Green:configured}}" }
+			Default { $txt = "`t{{Cyan:[+] Credential Guard}}: {{Yellow:unknown}}" }
+		}
+
+		if ($LsaIsoPID -is [int] -and $LsaIsoPID -gt 0) {
+			$txt += " (LSAIso PID: $($LsaIsoPID))"
+		}
+
+		Write-Color $txt
+	}
+} -Arguments @{ CredGuard = $devGuard.SecurityServicesConfigured; LsaIsoPID = $lsaIsoProcess.Id }
+# ================ Security Services
+Invoke-SafeBlock -BlockName "SecurityServices" -ScriptBlock {
+	param($SecurityServices)
+	process {
+		# Ensure needed variables
+		if ($null -eq $SecurityServices) {
+			throw "Failed to fetch data"
+		}
+
+		switch ($SecurityServices) {
+			0 { $txt += "`t{{Cyan:[-] Security Services}}: VBS security service {{Red:inactive}}" }
+			1 { $txt += "`t{{Cyan:[+] Security Services}}: Credential Guard {{Green:running}}" }
+			2 { $txt += "`t{{Cyan:[+] Security Services}}: Memory integrity/HVCI {{Green:running}}" }
+			3 { $txt += "`t{{Cyan:[+] Security Services}}: System Guard Secure Launch {{Green:running}}" }
+			4 { $txt += "`t{{Cyan:[+] Security Services}}: SMM firmware measurement {{Green:running}}" }
+			Default { $txt += "`t{{Cyan:[+] Security Services}}: {{Yellow:unknown}}" }
+		}
+
+		Write-Color $txt
+	}
+} -Arguments @{ SecurityServices = $devGuard.SecurityServicesRunning }
 # ================ Av Information
 # Windows Security Center COM API
 # implement wscAPI.WSCProductList in C#
@@ -612,6 +691,20 @@ Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
 			throw "Failed to fetch data"
 		}
 
+		<#
+			.SYNOPSIS
+			.DESCRIPTION
+			.PARAMETER None
+			.EXAMPLE
+			.INPUTS
+			.OUTPUTS
+				System.Net.IPAddress
+			.COMPONENT
+				Network
+			.LINK
+			.NOTES
+				Date: August 2026
+		#>
 		function Normalize-IPAddress {
 			[OutputType([System.Net.IPAddress])]
 			param(
@@ -645,6 +738,20 @@ Invoke-SafeBlock -BlockName "KnownHosts" -ScriptBlock {
 			}
 		}
 
+		<#
+			.SYNOPSIS
+			.DESCRIPTION
+			.PARAMETER None
+			.EXAMPLE
+			.INPUTS
+			.OUTPUTS
+				System.Net.IPAddress
+			.COMPONENT
+				Network
+			.LINK
+			.NOTES
+				Date: August 2026
+		#>
 		function Test-IPInSubnet {
 			param(
 				[Parameter(Mandatory)]
