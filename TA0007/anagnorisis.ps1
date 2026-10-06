@@ -176,7 +176,7 @@ $CIMWin32CPU = Get-CimInstance -ClassName Win32_Processor -Property DeviceID,Nam
 $CIMWin32GPU = Get-CimInstance -ClassName Win32_VideoController -Property DeviceID,Status,Name,AdapterRAM,AdapterCompatibility,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentNumberOfColors,CurrentRefreshRate,CurrentBitsPerPixel -ErrorAction SilentlyContinue
 $CIMWin32RAM = Get-CimInstance -ClassName Win32_PhysicalMemory -Property Manufacturer,PartNumber,SerialNumber,FormFactor,SMBIOSMemoryType,ConfiguredVoltage,Capacity,ConfiguredClockSpeed,Speed -ErrorAction SilentlyContinue
 $CIMWin32Disks = Get-CimInstance -ClassName Win32_DiskDrive -Property Index,InterfaceType,MediaType,Model,Size,BytesPerSector,Partitions,FirmwareRevision,SerialNumber -ErrorAction SilentlyContinue
-$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Status,Present,PNPDeviceID,PNPClass,Name,Description -ErrorAction SilentlyContinue
+$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Name,Status,PNPDeviceID,Manufacturer,PNPClass,Present,Service -ErrorAction SilentlyContinue
 # ================ Device name
 Invoke-SafeBlock -BlockName "DeviceName" -ScriptBlock {
 	param ($CompSys, $BIOS)
@@ -308,7 +308,6 @@ Invoke-SafeBlock -BlockName "StorageDevice" -ScriptBlock {
 	}
 } -Arguments @{ Disks = $CIMWin32Disks }
 # ================ PnP Devices
-$CIMWin32PnP = Get-CimInstance -ClassName Win32_PnPEntity -Property Name,Status,PNPDeviceID,Manufacturer,PNPClass,Present,Service -ErrorAction SilentlyContinue
 Invoke-SafeBlock -BlockName "PnPDevs" -ScriptBlock {
 	param($Devices)
 	process{
@@ -907,7 +906,7 @@ Write-Color "{{DarkBlue:[*] USB}}:"
 Write-Color "{{DarkBlue:[*] Identities}}:"
 $principal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())
 # $isAdmin = [bool]($identity.Groups -match 'S-1-5-32-544')
-$isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+$isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator) # Verify if current context is elevated
 # ================ Current user
 Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
 	param ($Identity, $IsAdmin)
@@ -926,6 +925,23 @@ Invoke-SafeBlock -BlockName "CurrentUser" -ScriptBlock {
 } -Arguments @{ Identity = $principal.Identities; IsAdmin = $isAdmin }
 # ================ Privileges
 # ================ Current groups (SID)
+Invoke-SafeBlock -BlockName "CurrentGroups" -ScriptBlock {
+	param($SecurityPrincipal)
+	process {
+		if (-not ($SecurityPrincipal)) {
+			throw "Failed to fetch data"
+		}
+		$txt = "`t{{Cyan:[+] Current Groups}}: "
+		foreach ($i in ($SecurityPrincipal.Identities[0].Groups | Sort-Object)) {
+			try {
+				$txt += "`n`t`t{{Cyan:[>]}} $($i.Value): $($i.Translate([System.Security.Principal.NTAccount]).Value)"
+			} catch {
+				$txt += "`n`t`t{{Cyan:[>]}} $($i.Value)"
+			}
+		}
+		Write-Color $txt
+	}
+} -Arguments @{ SecurityPrincipal = $principal }
 # ================ Other users
 # hostname\username (SID) IsDisabled? IsAdmin?
 # groups (SID)
@@ -949,6 +965,7 @@ Write-Color "{{DarkBlue:[*] Domain}}:"
 # ================ Identities
 # Admin users and groups
 # adminCount attribute objects
+# interesting permissions over high value objects (remove S-1-5-32-(544|548|561) and BASE_SID-(512|519|526|527))
 # ================ Resources
 # SYSVOL
 # GPOs
